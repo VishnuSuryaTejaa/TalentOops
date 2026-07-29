@@ -4,9 +4,9 @@ import EvaluationReport from './EvaluationReport';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
-export default function HREvaluationDashboard({ interviewId = 'iv-alex' }) {
+export default function HREvaluationDashboard({ interviewId = '' }) {
   const [evaluation, setEvaluation] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isPending, setIsPending] = useState(false);
 
@@ -63,32 +63,41 @@ export default function HREvaluationDashboard({ interviewId = 'iv-alex' }) {
     }
 
     if (interviewId) {
+      setLoading(true);
       fetchEvaluation();
     }
     return () => { isMounted = false; };
   }, [interviewId]);
 
+  if (!interviewId) {
+    return (
+      <div className="panel p-10 text-center text-[var(--mute)] font-mono text-xs bg-[var(--panel)]">
+        NO CANDIDATE INTERVIEW SELECTED.
+      </div>
+    );
+  }
+
   if (loading) {
     return (
-      <div className="glass-panel p-10 text-center text-cyan-400 font-mono animate-pulse">
-        ⚡ Loading HR Candidate Evaluation Report...
+      <div className="panel p-10 text-center text-[var(--signal)] font-mono text-xs animate-pulse bg-[var(--panel)]">
+        ⚡ LOADING HR CANDIDATE EVALUATION REPORT...
       </div>
     );
   }
 
   if (isPending) {
     return (
-      <div className="glass-panel p-10 text-center text-amber-400 font-mono animate-pulse">
-        ⏳ Evaluation is still being processed... Retrying automatically.
+      <div className="panel p-10 text-center text-[var(--tape)] font-mono text-xs animate-pulse bg-[var(--panel)]">
+        ⏳ EVALUATION IS STILL BEING PROCESSED... RETRYING AUTOMATICALLY.
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="glass-panel p-6 border-red-500/50 bg-red-950/30 text-red-300">
-        <h3 className="font-bold mb-2">⚠️ Error Loading HR Evaluation</h3>
-        <p className="text-sm font-mono">{error}</p>
+      <div className="panel p-6 border-[var(--alert)] bg-[var(--alert)]/10 text-[var(--alert)]">
+        <h3 className="font-display font-bold mb-2">⚠️ ERROR LOADING HR EVALUATION</h3>
+        <p className="text-xs font-mono">{error}</p>
       </div>
     );
   }

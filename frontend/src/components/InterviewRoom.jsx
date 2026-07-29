@@ -1,45 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, CheckCircle, XCircle, Loader2, Activity, Award, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, CheckCircle, XCircle, Loader2, MessageSquare } from 'lucide-react';
+import SignatureWaveform from './SignatureWaveform';
+import TranscriptBlock from './TranscriptBlock';
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 const WS_BASE  = API_BASE.replace(/^http/, 'ws');
-
-function ScoreBar({ label, value }) {
-  const pct = Math.round((value || 0) * 100);
-  return (
-    <div className="mb-3">
-      <div className="flex justify-between text-xs mb-1">
-        <span className="text-slate-300">{label}</span>
-        <span className="text-cyan-400 font-mono">{pct}%</span>
-      </div>
-      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-700"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function TranscriptBubble({ turn }) {
-  const isAgent = turn.speaker === 'interviewer' || turn.speaker === 'agent';
-  return (
-    <div className={`flex gap-3 mb-3 ${isAgent ? '' : 'flex-row-reverse'}`}>
-      <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold
-        ${isAgent ? 'bg-cyan-500/30 text-cyan-300' : 'bg-violet-500/30 text-violet-300'}`}>
-        {isAgent ? 'AI' : 'C'}
-      </div>
-      <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed
-        ${isAgent
-          ? 'bg-white/10 text-slate-200 rounded-tl-none'
-          : 'bg-cyan-600/30 text-cyan-100 rounded-tr-none'}`}>
-        {turn.text}
-      </div>
-    </div>
-  );
-}
 
 /* ─── stages ──────────────────────────────────────────────────────────────── */
 const STAGE = {
@@ -51,7 +17,6 @@ const STAGE = {
   ERROR:      'error',
 };
 
-/* ─── main component ─────────────────────────────────────────────────────── */
 export default function InterviewRoom({ roomId }) {
   const [stage,       setStage]       = useState(STAGE.LOBBY);
   const [micOn,       setMicOn]       = useState(true);
@@ -60,28 +25,22 @@ export default function InterviewRoom({ roomId }) {
   const [disclosure,  setDisclosure]  = useState('');
   const [transcript,  setTranscript]  = useState([]);
   const [turnInput,   setTurnInput]   = useState('');
-  const [scorecard,   setScorecard]   = useState(null);
-  const [behavMetrics, setBehavMetrics] = useState(null);
-  const [recommendation, setRecommendation] = useState(null);
-  const [detailedCompetencies, setDetailedCompetencies] = useState([]);
-  const [transcriptEvals, setTranscriptEvals] = useState([]);
+  const [fsmState,    setFsmState]    = useState('OPENING');
   const [errorMsg,    setErrorMsg]    = useState('');
+  const [consentGranted, setConsentGranted] = useState(false);
 
-  // BUG-03: countdown timer state (totalSeconds = 0 means no limit set)
-  const [totalSeconds,   setTotalSeconds]   = useState(0);
+  const [totalSeconds,     setTotalSeconds]     = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
-
-  const [roomMeta,    setRoomMeta]    = useState(null);
+  const [roomMeta,        setRoomMeta]        = useState(null);
 
   const wsRef          = useRef(null);
   const localVideoRef  = useRef(null);
   const localStream    = useRef(null);
   const transcriptEnd  = useRef(null);
-  // BUG-12: single persistent recognizer — don't recreate on every micOn toggle
   const recognizerRef  = useRef(null);
-  const micOnRef       = useRef(true);   // mirror of micOn for use inside recognizer callbacks
-  const stageRef       = useRef(STAGE.LOBBY); // mirror of stage for same reason
-  const countdownRef   = useRef(null);  // interval ID for countdown timer
+  const micOnRef       = useRef(true);
+  const stageRef       = useRef(STAGE.LOBBY);
+  const countdownRef   = useRef(null);
 
   /* ── webcam preview ─────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -92,7 +51,7 @@ export default function InterviewRoom({ roomId }) {
         localStream.current = s;
         if (localVideoRef.current) localVideoRef.current.srcObject = s;
       })
-      .catch(() => {/* mic/cam denied — non-fatal */});
+      .catch(() => {});
     return () => {
       stream?.getTracks().forEach(t => t.stop());
     };
@@ -109,28 +68,22 @@ export default function InterviewRoom({ roomId }) {
       localStream.current.getVideoTracks().forEach(t => (t.enabled = camOn));
     }
   }, [camOn]);
+
   const silenceTimerRef = useRef(null);
   const handleTurnSendRef = useRef(null);
   const finalTranscriptRef = useRef('');
 
-  /* ── auto-scroll transcript ─────────────────────────────────────────────── */
   useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript]);
 
-  /* ── Speech Synthesis helper ────────────────────────────────────────────── */
-  // BUG-01: pick the most human-sounding voice available on this device
   const pickBestVoice = useCallback(() => {
     const voices = window.speechSynthesis?.getVoices() || [];
-    const preferred = [
-      'Google UK English Female', 'Google US English', 'Samantha',
-      'Alex', 'Karen', 'Moira', 'Fiona',
-    ];
+    const preferred = ['Google UK English Female', 'Google US English', 'Samantha', 'Alex', 'Karen'];
     for (const name of preferred) {
       const v = voices.find(v => v.name === name);
       if (v) return v;
     }
-    // Fall back to first en-US voice, or first available
     return voices.find(v => v.lang?.startsWith('en')) || voices[0] || null;
   }, []);
 
@@ -139,126 +92,28 @@ export default function InterviewRoom({ roomId }) {
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      // BUG-01: explicitly select best voice; tune rate/pitch to sound natural
       const voice = pickBestVoice();
       if (voice) utterance.voice = voice;
-      utterance.rate  = 0.95;   // slightly slower = more natural
-      utterance.pitch = 1.05;   // very slight lift sounds less robotic
+      utterance.rate = 0.95;
+      utterance.pitch = 1.05;
       utterance.volume = 1.0;
-
-      utterance.onstart = () => {
-        // Automatically disable/mute candidate mic while AI is speaking
-        setMicOn(false);
-        micOnRef.current = false;
-      };
-      utterance.onend = () => {
-        // Automatically activate candidate microphone when AI finishes speaking
-        setMicOn(true);
-        micOnRef.current = true;
-      };
-      utterance.onerror = () => {
-        setMicOn(true);
-        micOnRef.current = true;
-      };
-
-      // Chrome bug: voices list sometimes empty on first call — retry after load
-      if (window.speechSynthesis.getVoices().length === 0) {
-        window.speechSynthesis.addEventListener('voiceschanged', () => {
-          const v2 = pickBestVoice();
-          if (v2) utterance.voice = v2;
-          window.speechSynthesis.speak(utterance);
-        }, { once: true });
-      } else {
-        window.speechSynthesis.speak(utterance);
-      }
+      window.speechSynthesis.speak(utterance);
     } catch (e) {
-      console.warn('SpeechSynthesis error:', e);
-      setMicOn(true);
-      micOnRef.current = true;
+      console.warn('Speech synthesis failed:', e);
     }
   }, [pickBestVoice]);
 
-  /* ── Speech Recognition setup ───────────────────────────────────────────── */
-  // BUG-12: Create recognizer ONCE; start/stop it when micOn changes (don't recreate)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    let recognition;
-    try {
-      recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = (event) => {
-        // BUG-13: Ignore results if mic is supposed to be off (AI is speaking)
-        if (!micOnRef.current) return;
-        // BUG-13: Also ignore if we're not in the interview/consent stage
-        if (stageRef.current !== STAGE.INTERVIEW && stageRef.current !== STAGE.CONSENT) return;
-
-        let interim = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscriptRef.current += event.results[i][0].transcript + ' ';
-          } else {
-            interim += event.results[i][0].transcript;
-          }
-        }
-        const fullSpokenText = (finalTranscriptRef.current + interim).trim();
-        if (fullSpokenText) {
-          setTurnInput(fullSpokenText);
-          setConsentText(prev => prev || fullSpokenText);
-
-          // 3.0-second silence detector (VAD auto-submit after natural pauses)
-          // BUG-13: only arm the timer when mic is genuinely on
-          if (!micOnRef.current) return;
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = setTimeout(() => {
-            // BUG-14: read current ref value, not captured closure value
-            const textToSubmit = finalTranscriptRef.current.trim();
-            if (textToSubmit && handleTurnSendRef.current) {
-              handleTurnSendRef.current(textToSubmit);
-            }
-          }, 3000);
-        }
-      };
-
-      recognition.onend = () => {
-        // Auto-restart if mic should still be on (recognition stops automatically on some browsers)
-        if (micOnRef.current && recognizerRef.current === recognition) {
-          try { recognition.start(); } catch {}
-        }
-      };
-
-      recognizerRef.current = recognition;
-      try { recognition.start(); } catch {}
-    } catch (e) {
-      console.warn('SpeechRecognition failed to start:', e);
-    }
-
-    return () => {
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      recognizerRef.current = null;
-      try { recognition?.stop(); } catch {}
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only create once!
-
-  // BUG-12: Separate effect to start/stop recognizer when micOn changes
   useEffect(() => {
     micOnRef.current = micOn;
     const rec = recognizerRef.current;
     if (!rec) return;
     if (micOn) {
-      try { rec.start(); } catch {/* already running */}
+      try { rec.start(); } catch {}
     } else {
-      try { rec.stop(); } catch {/* already stopped */}
+      try { rec.stop(); } catch {}
     }
   }, [micOn]);
 
-  // Mirror stage into ref for use inside recognizer onresult
   useEffect(() => {
     stageRef.current = stage;
     if (stage === STAGE.COMPLETE) {
@@ -292,15 +147,18 @@ export default function InterviewRoom({ roomId }) {
 
         case 'agent-message': {
           const agentText = data.text || '';
+          if (data.fsm_state) {
+            setFsmState(data.fsm_state.toUpperCase());
+          }
           if (data.agent === 'consent') {
             if (data.consent_granted) {
+              setConsentGranted(true);
               setStage(STAGE.INTERVIEW);
             } else {
               setStage(STAGE.ERROR);
               setErrorMsg('Consent was not granted. Session ended.');
             }
           } else if (data.event === 'interview_duration' && data.duration_seconds > 0) {
-            // BUG-03: Backend sent the interview duration — start countdown
             setTotalSeconds(data.duration_seconds);
             setRemainingSeconds(data.duration_seconds);
             if (countdownRef.current) clearInterval(countdownRef.current);
@@ -311,9 +169,8 @@ export default function InterviewRoom({ roomId }) {
               });
             }, 1000);
           } else if (agentText) {
-            // BUG-10: was filtering out data.agent === 'interviewer'; now we always show
             setTranscript(prev => prev.some(t => t.text === agentText) ? prev : [
-              ...prev, { speaker: 'agent', text: agentText },
+              ...prev, { speaker: 'interviewer', text: agentText },
             ]);
             speakText(agentText);
           }
@@ -323,14 +180,14 @@ export default function InterviewRoom({ roomId }) {
         case 'interview-turn':
           if (data.text) {
             const text = data.text;
-            const speaker = data.speaker || 'agent';
+            const speaker = data.speaker || 'interviewer';
+            if (data.fsm_state) setFsmState(data.fsm_state.toUpperCase());
             setTranscript(prev => {
               if (prev.length > 0 && prev[prev.length - 1].speaker === speaker && prev[prev.length - 1].text === text) {
                 return prev;
               }
               return [...prev, { speaker, text }];
             });
-            // BUG-19: only speak AI turns — never read back candidate's own answer
             if (speaker === 'interviewer' || speaker === 'agent') {
               speakText(text);
             }
@@ -339,22 +196,6 @@ export default function InterviewRoom({ roomId }) {
 
         case 'eval-update':
         case 'session-end': {
-          const scData = data.scorecard || {};
-          const sc = scData.scorecard || scData;
-          setScorecard(sc);
-
-          const rec = data.final_recommendation || scData.final_recommendation || null;
-          if (rec) setRecommendation(rec);
-
-          const bm = data.behavioral_metrics || scData.behavioral_metrics || null;
-          if (bm) setBehavMetrics(bm);
-
-          const dc = data.detailed_competencies || scData.detailed_competencies || null;
-          if (dc) setDetailedCompetencies(dc);
-
-          const te = data.full_transcript_evaluations || scData.full_transcript_evaluations || null;
-          if (te) setTranscriptEvals(te);
-
           if (type === 'session-end' || data.status === 'completed') {
             setStage(STAGE.COMPLETE);
           } else {
@@ -362,7 +203,6 @@ export default function InterviewRoom({ roomId }) {
           }
           break;
         }
-
 
         case 'error':
           setStage(STAGE.ERROR);
@@ -400,28 +240,28 @@ export default function InterviewRoom({ roomId }) {
 
   const handleJoin = () => connectWs();
 
-  const handleConsent = () => {
-    if (!consentText.trim()) return;
-    setTranscript([{ speaker: 'agent', text: disclosure }]);
-    sendFrame('consent-response', { text: consentText });
+  const handleConsent = (textInput = consentText) => {
+    const text = textInput || 'Yes, I consent to the interview recording.';
+    setConsentGranted(true);
+    setTranscript([{ speaker: 'interviewer', text: disclosure }]);
+    sendFrame('consent-response', { text });
+  };
+
+  const handleDecline = () => {
+    setConsentGranted(false);
+    sendFrame('session-end');
+    setStage(STAGE.ERROR);
+    setErrorMsg('Consent declined. Session ended.');
   };
 
   const handleTurnSend = useCallback((overrideText) => {
     const textToSend = typeof overrideText === 'string' ? overrideText : turnInput;
     if (!textToSend || !textToSend.trim()) return;
 
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-
     const finalStr = textToSend.trim();
-    setTranscript(prev => {
-      if (prev.length > 0 && prev[prev.length - 1].speaker === 'candidate' && prev[prev.length - 1].text === finalStr) {
-        return prev;
-      }
-      return [...prev, { speaker: 'candidate', text: finalStr }];
-    });
+    setTranscript(prev => [
+      ...prev, { speaker: 'candidate', text: finalStr }
+    ]);
     sendFrame('interview-turn', { text: finalStr });
     setTurnInput('');
     finalTranscriptRef.current = '';
@@ -437,48 +277,53 @@ export default function InterviewRoom({ roomId }) {
     wsRef.current?.close();
     await fetch(`${API_BASE}/rooms/${roomId}/end`, { method: 'POST' }).catch(() => {});
     setStage(STAGE.COMPLETE);
-    window.location.href = `/?interviewId=${roomId}&tab=hr`;
   };
 
-
-
-  /* ─── render ─────────────────────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-[#070b14] text-white font-sans flex flex-col"
-         style={{ fontFamily: "'Inter', sans-serif" }}>
+    <div className="min-h-screen bg-[var(--ink)] text-[var(--bone)] font-body flex flex-col">
 
-      {/* ── top bar ────────────────────────────────────────────────────────── */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-white/10
-                         bg-white/5 backdrop-blur-md">
+      {/* Control Room Broadcast Bar */}
+      <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-[#0F131D]/90 backdrop-blur select-none">
         <div className="flex items-center gap-3">
-          <span className="text-cyan-400 font-bold text-lg tracking-tight">TalentOops</span>
-          <span className="text-slate-500">|</span>
-          <span className="text-slate-400 text-sm">Interview Room</span>
+          <span className="font-display font-extrabold text-base tracking-tight text-[var(--bone)]">
+            TALENT<span className="text-[var(--tape)]">OPS</span>
+          </span>
+          <span className="text-slate-700 font-mono text-xs">|</span>
+          {/* Candidate Identity Reduced to Mono Label (Fairness Model Constraint) */}
+          <span className="font-mono text-xs text-[var(--mute)]">
+            CANDIDATE ID: <span className="text-[var(--bone)]">{roomId || 'c-candidate'}</span>
+          </span>
         </div>
-        <div className="flex items-center gap-4 text-xs">
+
+        {/* Center ON AIR State Indicator (Bricolage Grotesque) */}
+        {stage === STAGE.INTERVIEW && (
+          <div className="font-display text-base font-bold text-[var(--bone)] tracking-wider px-3 py-1 bg-[var(--panel)] border border-slate-800 rounded-[var(--radius)] flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[var(--tape)] animate-signal-pulse" />
+            ON AIR // {fsmState}
+          </div>
+        )}
+
+        <div className="flex items-center gap-4 font-mono text-xs">
           {totalSeconds > 0 && (
-            <div className={`px-3 py-1 rounded-full font-mono flex items-center gap-2 ${
-              remainingSeconds <= 60 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse' : 'bg-slate-800 text-slate-300 border border-slate-700'
-            }`}>
-              ⏱ {Math.floor(remainingSeconds / 60)}:{(remainingSeconds % 60).toString().padStart(2, '0')}
+            <div className="px-3 py-1 rounded-[var(--radius)] bg-slate-900 border border-slate-800 text-[var(--mute)]">
+              RECORDING: {Math.floor(remainingSeconds / 60)}:{(remainingSeconds % 60).toString().padStart(2, '0')}
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${
-              stage === STAGE.INTERVIEW || stage === STAGE.EVALUATING
-                ? 'bg-green-400 animate-pulse' : 'bg-slate-600'
-            }`} />
-            <span className="text-slate-400 font-mono">{roomId?.slice(0,8) ?? '---'}</span>
-          </div>
+          <button
+            type="button"
+            onClick={handleEnd}
+            className="px-3 py-1 rounded-[var(--radius)] bg-[var(--alert)]/20 text-[var(--alert)] border border-[var(--alert)]/50 hover:bg-[var(--alert)]/30 font-semibold"
+          >
+            END ROOM
+          </button>
         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-
-        {/* ── left: video + controls ─────────────────────────────────────── */}
-        <div className="w-72 flex-shrink-0 flex flex-col gap-4 p-4 border-r border-white/10 bg-white/3">
-          {/* local video */}
-          <div className="relative rounded-xl overflow-hidden bg-slate-800/60 aspect-video">
+        
+        {/* Left Video Stream Sidebar */}
+        <div className="w-64 flex-shrink-0 flex flex-col gap-4 p-4 border-r border-slate-800 bg-[var(--panel)]/50">
+          <div className="relative rounded-[var(--radius)] overflow-hidden bg-slate-950 aspect-video border border-slate-800">
             <video
               ref={localVideoRef}
               autoPlay
@@ -488,122 +333,90 @@ export default function InterviewRoom({ roomId }) {
             />
             {!camOn && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <VideoOff size={28} className="text-slate-500" />
+                <VideoOff size={24} className="text-slate-600" />
               </div>
             )}
-            <div className="absolute bottom-2 left-2 text-xs bg-black/50 px-2 py-0.5 rounded-full text-slate-300">
-              You
+            <div className="absolute bottom-2 left-2 text-[10px] font-mono bg-black/70 px-2 py-0.5 rounded text-[var(--mute)]">
+              FEED // LOCAL_CAM
             </div>
           </div>
 
-          {/* mic / cam toggles */}
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => setMicOn(v => !v)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-all
-                ${micOn ? 'bg-white/10 hover:bg-white/15 text-slate-200'
-                         : 'bg-rose-500/20 border border-rose-500/50 text-rose-400'}`}
+              className={`flex-1 py-1.5 rounded-[var(--radius)] font-mono text-xs border transition-all ${
+                micOn
+                  ? 'bg-slate-900 border-slate-700 text-[var(--bone)]'
+                  : 'bg-[var(--alert)]/20 border-[var(--alert)] text-[var(--alert)]'
+              }`}
             >
-              {micOn ? <Mic size={15} /> : <MicOff size={15} />}
-              {micOn ? 'Mic On' : 'Muted'}
+              {micOn ? 'MIC: ON' : 'MIC: OFF'}
             </button>
             <button
+              type="button"
               onClick={() => setCamOn(v => !v)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-all
-                ${camOn ? 'bg-white/10 hover:bg-white/15 text-slate-200'
-                         : 'bg-rose-500/20 border border-rose-500/50 text-rose-400'}`}
+              className={`flex-1 py-1.5 rounded-[var(--radius)] font-mono text-xs border transition-all ${
+                camOn
+                  ? 'bg-slate-900 border-slate-700 text-[var(--bone)]'
+                  : 'bg-[var(--alert)]/20 border-[var(--alert)] text-[var(--alert)]'
+              }`}
             >
-              {camOn ? <Video size={15} /> : <VideoOff size={15} />}
-              {camOn ? 'Camera' : 'Off'}
+              {camOn ? 'CAM: ON' : 'CAM: OFF'}
             </button>
           </div>
-
-          {/* scorecard sidebar */}
-          {(behavMetrics || scorecard) && (
-            <div className="flex-1 overflow-y-auto rounded-xl bg-white/5 p-4 border border-white/10">
-              <div className="flex items-center gap-2 mb-4">
-                <Activity size={14} className="text-cyan-400" />
-                <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Live Scores</span>
-              </div>
-              {behavMetrics && <>
-                <ScoreBar label="Confidence"    value={behavMetrics.confidence_level} />
-                <ScoreBar label="Clarity"       value={behavMetrics.communication_clarity} />
-                <ScoreBar label="Engagement"    value={behavMetrics.candidate_engagement} />
-              </>}
-              {recommendation && (
-                <div className="mt-4 p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
-                  <div className="text-xs text-slate-400 mb-1">Recommendation</div>
-                  <div className="text-sm font-bold text-cyan-300">
-                    {recommendation.hiring_recommendation}
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    Score: {recommendation.overall_suitability_score}%
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* end session button */}
-          {(stage === STAGE.INTERVIEW || stage === STAGE.EVALUATING) && (
-            <button
-              onClick={handleEnd}
-              className="flex items-center justify-center gap-2 py-2.5 rounded-lg
-                         bg-rose-500/10 border border-rose-500/30 text-rose-400
-                         hover:bg-rose-500/20 transition-all text-sm font-medium"
-            >
-              <PhoneOff size={15} /> End Session
-            </button>
-          )}
         </div>
 
-        {/* ── centre: stage content ──────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto">
+        {/* Center Main Stage Room */}
+        <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto">
 
-          {/* LOBBY */}
+          {/* LOBBY STAGE */}
           {stage === STAGE.LOBBY && (
-            <div className="w-full max-w-md">
-              <div className="text-center mb-8">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center mx-auto mb-4 shadow-[0_0_40px_rgba(6,182,212,0.35)]">
-                  <MessageSquare size={28} className="text-white" />
-                </div>
-                <h1 className="text-2xl font-bold text-white mb-2">Ready to Join?</h1>
-                <p className="text-slate-400 text-sm leading-relaxed">
-                  Your interview room is prepared. Make sure your microphone and camera are working.
+            <div className="w-full max-w-md panel p-6 space-y-6 text-center">
+              <div className="space-y-2">
+                <h1 className="font-display text-2xl font-bold text-[var(--bone)]">
+                  ENTERING INTERVIEW ROOM
+                </h1>
+                <p className="font-mono text-xs text-[var(--mute)]">
+                  Verify audio capture permissions before connecting to the Oral Interview Agent.
                 </p>
               </div>
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6 space-y-3">
-                <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Before you begin</p>
-                {['Microphone and camera are permitted in your browser',
-                  'You are in a quiet environment',
-                  'Stable internet connection',
-                  'This session will be recorded with your consent'].map(item => (
-                  <div key={item} className="flex items-start gap-2 text-sm text-slate-300">
-                    <CheckCircle size={15} className="text-cyan-400 flex-shrink-0 mt-0.5" />
-                    {item}
-                  </div>
-                ))}
-              </div>
               <button
+                type="button"
                 id="btn-join-room"
                 onClick={handleJoin}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600
-                           hover:from-cyan-500 hover:to-blue-500 text-white font-semibold text-base
-                           shadow-[0_0_25px_rgba(6,182,212,0.4)] transition-all"
+                className="w-full py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-sm font-bold hover:bg-[#f3b04c] shadow-[0_0_15px_rgba(232,163,61,0.3)] transition-all"
               >
-                Join Interview Room
+                CONNECT SIGNAL CHANNEL
               </button>
             </div>
           )}
 
-          {/* CONSENT */}
+          {/* CONSENT STAGE - Matching Section 2.3 of Design Pitch */}
           {stage === STAGE.CONSENT && (
-            <div className="w-full max-w-lg">
-              <h2 className="text-xl font-bold text-white mb-2 text-center">Recording Consent</h2>
-              <p className="text-slate-400 text-sm text-center mb-6">Please read and respond to the following disclosure.</p>
-              <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl p-5 mb-6 text-sm text-amber-200 leading-relaxed">
-                {disclosure || 'This session will be recorded and evaluated by our AI system for objective scoring. Do you consent?'}
+            <div className="w-full max-w-lg panel p-8 space-y-6">
+              
+              {/* Stilled Amber Waveform Bar (Unlit -> Lit on Consent) */}
+              <SignatureWaveform
+                active={consentGranted}
+                variant="tape"
+                barCount={1}
+                caption={consentGranted ? 'RECORDING — LIVE' : 'RECORDING — NOT STARTED'}
+              />
+
+              <div className="space-y-2 text-center">
+                <h2 className="font-display text-xl font-bold text-[var(--bone)]">
+                  RECORDING DISCLOSURE &amp; CONSENT
+                </h2>
+                <p className="font-body text-xs text-[var(--mute)] leading-relaxed">
+                  Please review the consent protocol below. TalentOps uses structured STT audio processing to evaluate competencies against objective hiring standards.
+                </p>
               </div>
+
+              <div className="panel p-4 bg-slate-950 font-body text-sm text-[var(--bone)] leading-relaxed border-slate-800">
+                {disclosure || 'This oral interview session will be recorded and transcribed by OralInterviewAgent for objective standard evaluation. Do you consent to audio recording and transcription?'}
+              </div>
+
               <input
                 id="input-consent"
                 type="text"
@@ -611,158 +424,113 @@ export default function InterviewRoom({ roomId }) {
                 onChange={e => setConsentText(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleConsent()}
                 placeholder='Type "yes I consent" to proceed…'
-                className="w-full bg-white/8 border border-white/15 rounded-xl px-4 py-3
-                           text-white placeholder:text-slate-500 text-sm mb-4
-                           focus:outline-none focus:border-cyan-500 transition-all"
+                className="w-full bg-slate-950 border border-slate-800 rounded-[var(--radius)] px-4 py-2.5 font-mono text-xs text-[var(--bone)] focus:outline-none focus:border-[var(--tape)]"
               />
-              <div className="flex gap-3">
+
+              {/* Equal-Weight Consent Buttons (Same Size, Same Priority) */}
+              <div className="flex gap-4">
                 <button
+                  type="button"
                   id="btn-consent-agree"
-                  onClick={handleConsent}
-                  disabled={!consentText.trim()}
-                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
-                             bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold
-                             disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(6,182,212,0.3)]
-                             hover:from-cyan-500 hover:to-blue-500 transition-all"
+                  onClick={() => handleConsent()}
+                  className="flex-1 py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-xs font-bold hover:bg-[#f3b04c] transition-all"
                 >
-                  <CheckCircle size={16} /> I Consent &amp; Join
+                  I CONSENT &amp; JOIN
                 </button>
                 <button
+                  type="button"
                   id="btn-consent-decline"
-                  onClick={() => { sendFrame('session-end'); setStage(STAGE.ERROR); setErrorMsg('Session cancelled.'); }}
-                  className="px-5 py-3 rounded-xl border border-white/15 text-slate-400
-                             hover:bg-white/5 text-sm transition-all"
+                  onClick={handleDecline}
+                  className="flex-1 py-3 rounded-[var(--radius)] bg-[var(--panel)] text-[var(--bone)] border border-slate-700 font-mono text-xs hover:border-[var(--alert)] hover:text-[var(--alert)] transition-all"
                 >
-                  Decline
+                  DECLINE
                 </button>
               </div>
+
             </div>
           )}
 
-          {/* INTERVIEW */}
+          {/* LIVE INTERVIEW STAGE - Section 2.2 */}
           {stage === STAGE.INTERVIEW && (
-            <div className="w-full max-w-2xl flex flex-col h-full" style={{ maxHeight: '70vh' }}>
-              <div className="flex items-center justify-between gap-2 mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
-                  <span className="text-sm text-slate-400 font-medium">Interview in progress</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  {micOn ? (
-                    <span className="text-xs text-rose-400 font-semibold flex items-center gap-1.5 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/20">
-                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" /> Listening...
-                    </span>
-                  ) : (
-                    <span className="text-xs text-cyan-400 font-medium flex items-center gap-1.5 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/20">
-                      <Loader2 size={12} className="animate-spin" /> AI Speaking / Thinking…
-                    </span>
-                  )}
-                  <button
-                    id="btn-end-interview-header"
-                    onClick={() => {
-                      setStage(STAGE.EVALUATING);
-                      sendFrame('session-end');
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
-                  >
-                    <XCircle size={14} /> End Interview &amp; Get Evaluation
-                  </button>
-                </div>
+            <div className="w-full max-w-3xl flex flex-col h-full space-y-4">
+              
+              {/* Center Broadcast FSM State Indicator */}
+              <div className="text-center py-2 border-b border-slate-800/80">
+                <span className="font-mono text-xs text-[var(--mute)] uppercase tracking-widest">STATE MACHINE: </span>
+                <span className="font-display font-bold text-lg text-[var(--tape)] tracking-wider">
+                  {fsmState}
+                </span>
               </div>
 
-              {/* transcript scroll area */}
-              <div className="flex-1 overflow-y-auto mb-4 pr-1">
+              {/* Transcript Scroll Area with TranscriptBlock */}
+              <div className="flex-1 overflow-y-auto space-y-2 pr-2">
                 {transcript.map((turn, i) => (
-                  <TranscriptBubble key={i} turn={turn} />
+                  <TranscriptBlock
+                    key={i}
+                    speaker={turn.speaker === 'candidate' ? 'CANDIDATE' : 'OralInterviewAgent'}
+                    timestamp={new Date().toLocaleTimeString()}
+                    isEvidence={false}
+                  >
+                    {turn.text}
+                  </TranscriptBlock>
                 ))}
                 <div ref={transcriptEnd} />
               </div>
 
-              {/* Live Speech Accumulator preview box */}
-              {micOn && turnInput && (
-                <div className="mb-3 p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-between text-xs text-cyan-200">
-                  <div className="flex items-center gap-2 overflow-hidden mr-3">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping flex-shrink-0" />
-                    <span className="font-mono text-slate-400 flex-shrink-0">Live STT Buffer:</span>
-                    <span className="truncate italic font-sans text-slate-100">{turnInput}</span>
-                  </div>
-                  <button
-                    id="btn-done-speaking-quick"
-                    onClick={() => handleTurnSend(turnInput)}
-                    className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1 shadow-sm transition-all"
-                  >
-                    <CheckCircle size={13} /> Done Speaking
-                  </button>
-                </div>
-              )}
+              {/* Signature Element: Bottom Amber Waveform */}
+              <SignatureWaveform
+                active={true}
+                variant="tape"
+                caption="ORAL INTERVIEW AGENT // LIVE STT CAPTURE"
+              />
 
-              {/* answer input & controls */}
-              <div className="flex gap-3">
+              {/* Answer Input Controls */}
+              <div className="flex gap-3 pt-2">
                 <input
                   id="input-answer"
                   type="text"
                   value={turnInput}
-                  onChange={e => {
-                    setTurnInput(e.target.value);
-                    finalTranscriptRef.current = e.target.value;
-                  }}
+                  onChange={e => setTurnInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleTurnSend()}
-                  placeholder="Type your answer or speak into mic…"
-                  className="flex-1 bg-white/8 border border-white/15 rounded-xl px-4 py-3
-                             text-white placeholder:text-slate-500 text-sm
-                             focus:outline-none focus:border-cyan-500 transition-all"
+                  placeholder="Speak into microphone or type answer..."
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-[var(--radius)] px-4 py-3 font-mono text-xs text-[var(--bone)] focus:outline-none focus:border-[var(--tape)]"
                 />
                 <button
+                  type="button"
                   id="btn-send-turn"
                   onClick={() => handleTurnSend()}
                   disabled={!turnInput.trim()}
-                  className="px-5 py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500
-                             text-white font-medium text-sm transition-all
-                             disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  className="px-5 py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-xs font-bold hover:bg-[#f3b04c] disabled:opacity-40 transition-all"
                 >
-                  <CheckCircle size={16} /> Done Speaking
+                  TRANSMIT TURN
                 </button>
               </div>
+
             </div>
           )}
 
-          {/* EVALUATING */}
+          {/* EVALUATING STAGE */}
           {stage === STAGE.EVALUATING && (
-            <div className="text-center max-w-md my-auto py-12">
-              <div className="w-20 h-20 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center mx-auto mb-6 relative">
-                <Loader2 size={36} className="text-cyan-400 animate-spin" />
-                <span className="absolute -inset-1 rounded-full border border-cyan-500/30 animate-ping" />
-              </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Analyzing Interview Responses…</h2>
-              <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-                Evaluator Agent is synthesizing transcript evidence, calculating technical competency benchmarks, and evaluating behavioral metrics.
+            <div className="text-center max-w-md panel p-8 space-y-4">
+              <Loader2 size={36} className="text-[var(--tape)] animate-spin mx-auto" />
+              <h2 className="font-display text-xl font-bold text-[var(--bone)]">
+                SYNTHESIZING CANDIDATE SCORECARD...
+              </h2>
+              <p className="font-mono text-xs text-[var(--mute)]">
+                EvaluatorAgent is extracting technical accuracy benchmarks and transcript evidence.
               </p>
-              <div className="flex items-center justify-center gap-2 text-xs font-mono text-cyan-400 bg-cyan-500/10 py-2.5 px-4 rounded-xl border border-cyan-500/20">
-                <Activity size={14} className="animate-pulse" /> Live Scorecard Synthesis in Progress
-              </div>
             </div>
           )}
 
-          {/* COMPLETE */}
-          {stage === STAGE.COMPLETE && (
-            <div className="text-center max-w-md my-auto py-12">
-              <div className="w-16 h-16 rounded-full bg-cyan-500/20 flex items-center justify-center mx-auto mb-4">
-                <Loader2 size={32} className="text-cyan-400 animate-spin" />
-              </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Redirecting...</h2>
-              <p className="text-slate-400 text-sm">Taking you to the HR Dashboard.</p>
-            </div>
-          )}
-
-
-          {/* ERROR */}
+          {/* ERROR STAGE */}
           {stage === STAGE.ERROR && (
-            <div className="text-center max-w-sm">
-              <XCircle size={48} className="text-rose-400 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-white mb-2">Session Ended</h2>
-              <p className="text-slate-400 text-sm">{errorMsg}</p>
+            <div className="text-center max-w-md panel p-8 space-y-4 border-[var(--alert)]">
+              <XCircle size={40} className="text-[var(--alert)] mx-auto" />
+              <h2 className="font-display text-xl font-bold text-[var(--bone)]">SESSION TERMINATED</h2>
+              <p className="font-mono text-xs text-[var(--mute)]">{errorMsg}</p>
             </div>
           )}
+
         </div>
       </div>
     </div>

@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
+import SignatureWaveform from './SignatureWaveform';
+import TranscriptBlock from './TranscriptBlock';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
-export default function HRDebriefCard({ interviewId = 'iv-alex', candidateId = 'c1' }) {
+/**
+ * HRDebriefCard Component
+ * 
+ * Implements HR Debrief Room voice Q&A with Manager Agent.
+ * Uses cyan (--signal) waveform and TranscriptBlock with cyan evidence border.
+ */
+export default function HRDebriefCard({ interviewId = '', candidateId = '' }) {
   const [session, setSession] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [hrQuestion, setHrQuestion] = useState('');
   const [asking, setAsking] = useState(false);
   const [qaHistory, setQaHistory] = useState([]);
@@ -89,96 +97,119 @@ export default function HRDebriefCard({ interviewId = 'iv-alex', candidateId = '
     }
   };
 
+  if (!interviewId) {
+    return (
+      <div className="panel p-4 text-center font-mono text-xs text-[var(--mute)] border-slate-800">
+        NO INTERVIEW SELECTED FOR HR DEBRIEF.
+      </div>
+    );
+  }
+
   if (loading) {
     return (
-      <div className="glass-panel p-4 text-center text-xs font-mono text-purple-400 animate-pulse">
-        ⚡ Checking Manager Agent HR Debrief Session status...
+      <div className="panel p-4 text-center font-mono text-xs text-[var(--signal)] animate-pulse border-[var(--signal)]/40">
+        ⚡ CONNECTING TO MANAGER AGENT HR DEBRIEF CHANNEL...
       </div>
     );
   }
 
   const roomUrl = session?.room_url || `http://localhost:8000/interview/debrief-${interviewId.slice(0, 8)}`;
-  const status = session?.status || 'Manager Agent Waiting';
+  const status = session?.status || 'MANAGER AGENT WAITING';
 
   return (
-    <div className="glass-panel p-6 border-purple-500/40 bg-gradient-to-r from-purple-950/30 to-cyan-950/30 space-y-4">
-      {/* 1. Realtime Debrief Notification Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-purple-500/30 pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🎙️</span>
-            <h3 className="text-base font-bold text-purple-300">
-              HR Debrief Session Ready for Candidate #{session?.candidate_id || candidateId}
-            </h3>
-          </div>
-          <p className="text-xs text-gray-300 mt-1 font-mono">
-            Join the live TalentOops Interview Room to verbally debrief with the AI Manager Agent using complete interview transcript RAG context.
-          </p>
+    <div className="panel flex flex-col bg-[var(--panel)] border-[var(--signal)]/40 overflow-hidden shadow-[0_0_15px_rgba(95,211,196,0.1)]">
+      
+      {/* Control Room Broadcast Bar - HR Debrief Chrome */}
+      <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-[#0F131D]/90 select-none">
+        <div className="flex items-center gap-3">
+          <span className="font-display font-extrabold text-base tracking-tight text-[var(--bone)]">
+            TALENT<span className="text-[var(--signal)]">OPS</span> <span className="text-slate-700 font-mono text-xs font-normal ml-1">| HR DEBRIEF</span>
+          </span>
+          <span className="text-slate-700 font-mono text-xs ml-1">|</span>
+          <span className="font-mono text-xs text-[var(--mute)]">
+            CANDIDATE ID: <span className="text-[var(--bone)]">{session?.candidate_id || candidateId}</span>
+          </span>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="px-3 py-1 rounded font-mono font-bold text-xs bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
-            {status}
-          </span>
+        {/* Center ON AIR State Indicator */}
+        <div className="font-display text-sm font-bold text-[var(--bone)] tracking-wider px-3 py-1 bg-slate-900 border border-[var(--signal)]/40 rounded-[var(--radius)] flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-[var(--signal)] animate-signal-pulse" />
+          {status}
+        </div>
 
+        <div className="flex items-center gap-4 font-mono text-xs">
           <a
             href={roomUrl}
             target="_blank"
             rel="noreferrer"
-            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-bold text-xs rounded-lg shadow-lg shadow-purple-500/20 transition-all flex items-center gap-1.5"
+            className="px-3 py-1 bg-[var(--signal)]/20 text-[var(--signal)] border border-[var(--signal)]/50 hover:bg-[var(--signal)]/30 font-semibold rounded-[var(--radius)] transition-all flex items-center gap-1.5 shadow-[0_0_8px_rgba(95,211,196,0.2)]"
           >
-            <span>🎙️</span> Join Debrief Room
+            <span>🎙️</span> JOIN LIVE ROOM
           </a>
         </div>
-      </div>
+      </header>
 
-      {/* 2. Interactive Manager Agent HR Q&A Console */}
-      <div className="space-y-3 pt-2">
-        <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
-          <span>🧠</span> Ask Manager Agent Oral HR Questions (Transcript RAG)
-        </h4>
+      <div className="p-6 space-y-4">
+        {/* Signature Element Waveform - Cyan for HR Debrief Room */}
+        <SignatureWaveform
+          active={asking || Boolean(audioUrl)}
+          variant="signal"
+          caption="MANAGER AGENT // HR DEBRIEF VOICE CHANNEL"
+        />
 
-        <form onSubmit={handleAskManager} className="flex gap-2">
-          <input
-            type="text"
-            value={hrQuestion}
-            onChange={(e) => setHrQuestion(e.target.value)}
-            placeholder="Ask Manager Agent (e.g. 'Why did they get a high rating on database architecture?')..."
-            className="flex-1 bg-[var(--color-glass-base)] border border-[var(--color-glass-border)] rounded-md px-3 py-2 text-xs focus:outline-none focus:border-purple-500 font-sans"
-          />
-          <button
-            type="submit"
-            disabled={asking || !hrQuestion.trim()}
-            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-md shadow transition-all disabled:opacity-50"
-          >
-            {asking ? '⚡ Thinking...' : 'Ask Manager'}
-          </button>
-        </form>
+        {/* Interactive Manager Agent HR Q&A Form */}
+        <div className="space-y-3 pt-2">
+          <h4 className="font-mono text-xs font-semibold text-[var(--signal)] uppercase tracking-wider">
+            // ORAL HR QUESTION INPUT (TRANSCRIPT RAG)
+          </h4>
 
-        {/* Audio Player */}
-        {audioUrl && (
-          <div className="p-3 rounded bg-purple-950/40 border border-purple-500/30 flex items-center justify-between gap-3 text-xs">
-            <span className="font-mono text-purple-300 flex items-center gap-1">
-              <span>🔊</span> Manager Agent Audio Response:
-            </span>
-            <audio controls autoPlay src={audioUrl} className="h-8 w-64" />
-          </div>
-        )}
+          <form onSubmit={handleAskManager} className="flex gap-2">
+            <input
+              type="text"
+              value={hrQuestion}
+              onChange={(e) => setHrQuestion(e.target.value)}
+              placeholder="Ask Manager Agent (e.g. 'Why did they get a high score on database architecture?')..."
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-[var(--radius)] px-4 py-3 font-mono text-xs text-[var(--bone)] focus:outline-none focus:border-[var(--signal)]"
+            />
+            <button
+              type="submit"
+              disabled={asking || !hrQuestion.trim()}
+              className="px-5 py-3 bg-[var(--signal)] text-[var(--ink)] font-mono font-bold text-xs rounded-[var(--radius)] hover:bg-[#72dfd1] transition-all disabled:opacity-40 shadow-[0_0_12px_rgba(95,211,196,0.3)]"
+            >
+              {asking ? '⚡ QUERYING...' : 'TRANSMIT QUESTION'}
+            </button>
+          </form>
 
-        {/* Q&A History Log */}
-        {qaHistory.length > 0 && (
-          <div className="space-y-2 mt-3 max-h-60 overflow-y-auto pr-1">
-            {qaHistory.map((item, idx) => (
-              <div key={idx} className="p-3 rounded-lg bg-[var(--color-glass-base)] border border-[var(--color-glass-border)] text-xs space-y-1">
-                <p className="font-bold text-purple-300">HR Query: {item.question}</p>
-                <p className="text-gray-200 pl-3 border-l-2 border-purple-500/50 leading-relaxed">
-                  🤖 <span className="font-bold text-cyan-300">Manager Agent:</span> {item.response}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
+          {/* Audio Player */}
+          {audioUrl && (
+            <div className="p-3 rounded-[var(--radius)] bg-slate-950 border border-[var(--signal)]/40 flex items-center justify-between gap-3 font-mono text-xs mt-2">
+              <span className="text-[var(--signal)] font-semibold flex items-center gap-2">
+                <span>🔊</span> MANAGER AGENT AUDIO RESPONSE:
+              </span>
+              <audio controls autoPlay src={audioUrl} className="h-8 w-64" />
+            </div>
+          )}
+
+          {/* Q&A History Log with TranscriptBlock */}
+          {qaHistory.length > 0 && (
+            <div className="space-y-2 mt-4 max-h-60 overflow-y-auto pr-2">
+              {qaHistory.map((item, idx) => (
+                <div key={idx} className="space-y-2">
+                  <div className="font-mono text-xs text-[var(--mute)] bg-slate-900/50 p-2 rounded-[var(--radius)] border border-slate-800">
+                    HR QUERY: <span className="text-[var(--bone)]">{item.question}</span>
+                  </div>
+                  <TranscriptBlock
+                    speaker="ManagerAgent"
+                    timestamp={new Date().toLocaleTimeString()}
+                    isEvidence={true}
+                  >
+                    {item.response}
+                  </TranscriptBlock>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

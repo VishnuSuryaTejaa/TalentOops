@@ -1,91 +1,108 @@
 @import "tailwindcss";
 
+:root {
+  --ink: #0B0E14;
+  --panel: #151A24;
+  --tape: #E8A33D;
+  --signal: #5FD3C4;
+  --alert: #FF6B5B;
+  --bone: #EDE6D9;
+  --mute: #7C8394;
+
+  --font-display: 'Bricolage Grotesque', sans-serif;
+  --font-body: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+
+  --radius: 6px;
+  --space-unit: 8px;
+}
+
 @theme {
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  
-  --color-canvas: #09090b;
-  --color-glass-base: rgba(255, 255, 255, 0.03);
-  --color-glass-hover: rgba(255, 255, 255, 0.05);
-  --color-glass-border: rgba(255, 255, 255, 0.08);
-  --color-glass-border-strong: rgba(255, 255, 255, 0.15);
-  
-  --color-neon-cyan: #06b6d4;
-  --color-neon-purple: #a855f7;
-  --color-neon-rose: #f43f5e;
-  --color-neon-amber: #f59e0b;
-  --color-text-primary: #f8fafc;
-  --color-text-secondary: #94a3b8;
-  --color-text-muted: #475569;
+  --font-display: 'Bricolage Grotesque', sans-serif;
+  --font-sans: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+
+  --color-ink: #0B0E14;
+  --color-panel: #151A24;
+  --color-tape: #E8A33D;
+  --color-signal: #5FD3C4;
+  --color-alert: #FF6B5B;
+  --color-bone: #EDE6D9;
+  --color-mute: #7C8394;
 }
 
-body {
-  background-color: var(--color-canvas);
-  color: var(--color-text-primary);
-  font-family: var(--font-sans);
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  background-color: var(--ink);
+  color: var(--bone);
+  font-family: var(--font-body);
   margin: 0;
+  padding: 0;
   -webkit-font-smoothing: antialiased;
-  background-image: 
-    radial-gradient(circle at 15% 50%, rgba(168, 85, 247, 0.05) 0%, transparent 50%),
-    radial-gradient(circle at 85% 30%, rgba(6, 182, 212, 0.05) 0%, transparent 50%);
-  background-attachment: fixed;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.glass-panel {
-  background: var(--color-glass-base);
-  border: 1px solid var(--color-glass-border);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 12px;
+/* Typography Utility Classes */
+.font-display {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
 }
 
-.glass-panel-purple {
-  box-shadow: 0 0 10px rgba(168, 85, 247, 0.1);
-  border-color: rgba(168, 85, 247, 0.2);
+.font-body {
+  font-family: var(--font-body);
 }
 
-.glass-panel-cyan {
-  box-shadow: 0 0 10px rgba(6, 182, 212, 0.1);
-  border-color: rgba(6, 182, 212, 0.2);
+.font-mono {
+  font-family: var(--font-mono);
+  letter-spacing: 0.01em;
 }
 
-/* Animations */
-@keyframes slideIn3D {
-  0% {
-    opacity: 0;
-    transform: perspective(1000px) rotateX(-10deg) translateZ(-50px) translateY(20px);
+/* Structural Components & Panels */
+.panel {
+  background-color: var(--panel);
+  border: 1px solid rgba(124, 131, 148, 0.2);
+  border-radius: var(--radius);
+}
+
+/* Signal Chain Rail Pulse (2.4s ease-in-out ambient animation) */
+@keyframes signalPulse {
+  0%, 100% {
+    opacity: 0.4;
+    box-shadow: 0 0 4px rgba(232, 163, 61, 0.2);
   }
-  100% {
+  50% {
     opacity: 1;
-    transform: perspective(1000px) rotateX(0deg) translateZ(0) translateY(0);
+    box-shadow: 0 0 12px rgba(232, 163, 61, 0.6);
   }
 }
 
-.animate-slide-in-3d {
-  animation: slideIn3D 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.animate-signal-pulse {
+  animation: signalPulse 2.4s ease-in-out infinite;
 }
 
-@keyframes pulse-neon {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-signal-pulse {
+    animation: none;
+    opacity: 1;
+  }
 }
 
-.animate-pulse-neon {
-  animation: pulse-neon 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* Custom Scrollbar */
+/* Custom Control-Room Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--ink);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-glass-border-strong);
-  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--mute);
+  border-radius: var(--radius);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
+  background: var(--mute);
 }
