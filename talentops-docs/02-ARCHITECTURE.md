@@ -73,15 +73,19 @@ Never crossed, never reinterpreted. Enforcement point is now the **session broke
 ## 2.5 Data stores (Supabase, rev 2)
 | Table group | Contents | Notes |
 |---|---|---|
-| roles/goals | goal, JD, difficulty level, frozen rubric | frozen (immutable) from first Interviewer dispatch |
-| hidden_context | distilled appendix, source URLs, scrape timestamps | frozen with rubric; provenance-logged |
-| candidates | parsed profiles, similarity scores, embeddings (pgvector) | matched vs enriched JD embedding |
-| briefs | per-candidate interview brief | generated pre-dispatch |
-| interviews | transcript (chain-native Whisper STT stream), timestamps, per-question competency mapping + difficulty_estimate | immutable audit trail; user-retrievable |
+| events | envelope log, workflow transitions | replayable append-only audit trail |
+| rubrics | frozen evaluation standard, competencies | one frozen rubric per run |
+| embeddings | pgvector store for JDs and candidate profiles | used for vector similarity matching |
+| roles | goal, JD, difficulty level, frozen rubric | frozen (immutable) from first Interviewer dispatch |
+| candidates | name, email, phone, parsed profile data (skills, experience, education), raw resume | linked to roles |
+| projects | candidate projects, tech stack, URL | linked to candidates |
+| interviews | transcript (Gemini Live STT stream), questions | immutable audit trail; user-retrievable |
+| scorecards | per-competency demonstrated level + validated verbatim evidence quotes | output from Evaluator Agent |
+| demographics | optional self-reported cohort data | segregated schema; RLS denies all agent roles; aggregate views only |
 | calibration | Pre-Flight Sandbox telemetry: VAD baseline, RTT/jitter, audio levels | excluded from evaluation path |
-| scorecards | per-competency demonstrated level + validated verbatim evidence quotes (char offsets) | contract v1.1.0 (D13) |
-| demographics | optional self-reported cohort data | segregated schema; RLS denies all agent roles; aggregate views only (D15) |
-| events / comms | envelope log; email log | replayable |
+| comms | outbound email logs | |
+| interview_qa_logs | per-question transcript and confidence score | used for fine-grained analysis |
+| hr_debrief_sessions | manager debrief meeting state, summary, context | drives the Manager Debrief GMeet session |
 
 ## 2.6 Fairness & Bias Lens (dashboard telemetry path — D15)
 - **Inputs:** per-question `difficulty_estimate` + competency mapping from the Interviewer audit trail ⋈ optional, post-interview, self-reported demographics (segregated store).

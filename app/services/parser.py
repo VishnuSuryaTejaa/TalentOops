@@ -169,7 +169,7 @@ def extract_candidate_metadata(resume_text: str, file_name: str | None = None) -
         "profile", "contact", "page", "phone", "email", "skills", "projects", "senior",
         "junior", "lead", "staff", "principal", "engineer", "developer", "architect",
         "manager", "data", "software", "fullstack", "backend", "frontend", "technologies",
-        "objective", "work", "history"
+        "objective", "work", "history", "name", "candidate", "applicant"
     }
 
     for line in top_lines:
@@ -178,16 +178,33 @@ def extract_candidate_metadata(resume_text: str, file_name: str | None = None) -
         if re.search(r"\+?\d[\d\s-]{7,}", line):
             continue
 
-        first_segment = re.split(r"\s*[-|\:\,]\s*", line)[0].strip()
-        words = first_segment.split()
-        if 1 <= len(words) <= 4:
-            clean_words = [re.sub(r"[^a-zA-Z]", "", w) for w in words]
-            clean_words = [w for w in clean_words if w]
-            if clean_words and not any(w.lower() in ignore_words for w in clean_words):
-                candidate_cand = " ".join(clean_words)
-                if len(candidate_cand) >= 2:
-                    extracted_name = candidate_cand.title()
-                    break
+        # Strip markdown symbols and explicit name prefixes
+        clean_line = re.sub(r"[#\*\_\`]", "", line).strip()
+        clean_line = re.sub(r"^(?:full\s+name|candidate\s+name|applicant\s+name|name|applicant|candidate)\s*[:\-]\s*", "", clean_line, flags=re.IGNORECASE).strip()
+
+        segments = [s.strip() for s in re.split(r"\s*[-|\:\,]\s*", clean_line) if s.strip()]
+        for segment in segments:
+            words = segment.split()
+            if 1 <= len(words) <= 4:
+                clean_words = [re.sub(r"[^a-zA-Z]", "", w) for w in words]
+                clean_words = [w for w in clean_words if w]
+                if clean_words and not any(w.lower() in ignore_words for w in clean_words):
+                    candidate_cand = " ".join(clean_words)
+                    if len(candidate_cand) >= 2:
+                        extracted_name = candidate_cand.title()
+                        break
+        if extracted_name:
+            break
+
+    # If line parsing didn't find a name, try inferring from email handle (e.g. john.doe@email.com -> John Doe)
+    if not extracted_name and email:
+        handle = email.split("@")[0]
+        # Only use handle if it contains separators or distinct words (not random hex/hash)
+        parts = re.split(r"[._\-+]", handle)
+        clean_parts = [re.sub(r"[^a-zA-Z]", "", p) for p in parts]
+        clean_parts = [p for p in clean_parts if len(p) >= 2 and p.lower() not in ignore_words]
+        if 1 <= len(clean_parts) <= 3:
+            extracted_name = " ".join(clean_parts).title()
 
     if not extracted_name and file_name:
         extracted_name = clean_candidate_name(file_name)

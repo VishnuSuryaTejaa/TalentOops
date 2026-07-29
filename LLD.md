@@ -68,18 +68,23 @@ class Rubric(BaseModel):
         }, sort_keys=True)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-class QuoteScore(BaseModel):
-    competency: str
-    score: float
+class EvidenceQuote(BaseModel):
     quote: str
-    verbatim_match: bool = True
+    char_start: int
+    char_end: int
+    speaker: Literal["candidate", "interviewer"]
+    validated: bool
 
-class ExtractiveScorecard(BaseModel):
+class CompetencyScore(BaseModel):
+    competency_id: str
+    demonstrated_level: Literal["L1", "L2", "L3", "insufficient_evidence"]
+    evidence_quotes: list[EvidenceQuote] = Field(default_factory=list)
+
+class ScorecardResult(BaseModel):
     candidate_id: str
-    interview_id: str
-    competency_scores: list[QuoteScore]
-    overall_score: float
-    recommendation: Literal["ADVANCE", "REJECT", "HOLD_FOR_REVIEW"]
+    competencies: list[CompetencyScore]
+    overall_fit: float
+    needs_human_review: bool
 ```
 
 ---
@@ -107,7 +112,7 @@ Briefing Structure:
 """
 ```
 
-### 2.2 Extractive Scorecard Verification Prompt (`app/agents/scorecard_agent.py`)
+### 2.2 Extractive Scorecard Verification Prompt (`app/agents/evaluator_agent.py`)
 
 ```python
 SCORECARD_VERIFICATION_PROMPT = """

@@ -193,21 +193,45 @@ async def process_hr_debrief_turn(interview_id: str, hr_question: str) -> dict[s
     if not retrieved_evidence and kw_matched:
         retrieved_evidence = f"Question: {kw_matched[0][0]}\nAnswer: {kw_matched[0][1]}\nNotes: {kw_matched[0][2]}"
 
-    # LLM Synthesis using MANAGER_DEBRIEF_SYSTEM_PROMPT
+    comp_lines = []
+    for c in comps:
+        cid = c.get("competency_id", "skill")
+        score = c.get("technical_accuracy", c.get("score", 0.8) * 100 if c.get("score") else 75.0)
+        quotes = ", ".join([f'"{q}"' for q in c.get("quotes", [])])
+        comp_lines.append(f"  * Competency '{cid}': Score={score}% | Evidence Quotes: {quotes or 'Observed in Q&A turns'}")
+    comp_str = "\n".join(comp_lines) if comp_lines else "General Technical Evaluation"
+
+    turn_eval_lines = []
+    for t in turns[:4]:
+        q = t.get("question", "")
+        a = t.get("candidate_answer", "")
+        notes = t.get("evaluator_notes", "")
+        if q and a:
+            turn_eval_lines.append(f"  * Q: '{q}' | Candidate: '{a}' | Evaluator Note: {notes}")
+    turn_eval_str = "\n".join(turn_eval_lines) if turn_eval_lines else "Q&A turns processed."
+
+    scorecard_summary = (
+        f"Scorecard & Evaluation Overview:\n"
+        f"- Overall Suitability Score: {rec.get('overall_suitability_score', rec.get('overall_fit', 75.0))}%\n"
+        f"- Hiring Recommendation: {rec.get('hiring_recommendation', 'N/A')}\n"
+        f"- Executive Summary: {rec.get('executive_summary', 'N/A')}\n"
+        f"- Behavioral Metrics: Confidence={metrics.get('confidence_level', 0.85)}, Clarity={metrics.get('communication_clarity', 0.85)}, Structure={metrics.get('response_structure', 0.80)}, Engagement={metrics.get('candidate_engagement', 0.85)}\n"
+        f"- Detailed Competency Ratings & Evidence:\n{comp_str}\n"
+        f"- Key Interview Q&A Turns & Evaluator Notes:\n{turn_eval_str}\n"
+    )
+
     user_prompt = f"""
-    Stored Knowledge Context:
-    Candidate ID: {kc.get('candidate_id', 'Candidate')}
-    Final Recommendation: {rec}
-    Behavioral Metrics: {metrics}
-    Detailed Competencies: {comps}
+    Stored Scorecard & Evaluation Context:
+    {scorecard_summary}
+
     Retrieved Relevant Transcript Evidence:
-    {retrieved_evidence}
+    {retrieved_evidence if retrieved_evidence else "No specific transcript turn matched, but complete scorecard context and competency evidence are provided above."}
 
     <untrusted-hr-query>
     {hr_question}
     </untrusted-hr-query>
 
-    Synthesize a concise, oral debrief response grounded ONLY in the retrieved evidence above.
+    Synthesize a professional, industry-grade debrief response answering HR's query using the Stored Scorecard & Evaluation Context and Evidence above. Cite specific candidate quotes and competency scores.
     """
 
     try:

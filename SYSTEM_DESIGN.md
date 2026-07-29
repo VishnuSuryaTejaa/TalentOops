@@ -25,7 +25,7 @@ sequenceDiagram
     participant SubAgents as Sub-Agents (Sourcing/Screening/Scheduling)
     participant Vexa as Vexa Google Meet Bot
     participant Gemini as Gemini Live Audio Engine
-    participant Scorecard as Scorecard Evaluator
+    participant Evaluator as Evaluator Agent
 
     User->>UI: Input Goal, Standard & Drive Link
     UI->>API: POST /run
@@ -45,7 +45,7 @@ sequenceDiagram
     Vexa<->>Gemini: Bi-directional Audio Stream (/ws/audio)
     
     Supervisor->>SubAgents: Reporting Node
-    SubAgents->>Scorecard: Evaluate Transcript & Verbatim Quotes
+    SubAgents->>Evaluator: Evaluate Transcript & Verbatim Quotes
     
     SubAgents->>Vexa: Deploy Manager AI Bot to User Meet Link
     Supervisor-->>API: Return Pipeline Result & Manager Debrief Link
@@ -63,12 +63,10 @@ sequenceDiagram
 - Canonical JSON is hashed via SHA-256 into `rubric.content_hash`.
 - The rubric record is persisted in Supabase `rubrics`.
 
-### Stage 2: Sourcing & Resume Vector Store
+### Stage 2 & 3: Sourcing and Screening (Combined in `sourcing_node`)
 - Sourcing agent accepts local PDF paths or Google Drive URLs (`https://drive.google.com/drive/folders/...`).
 - `fetch_resumes_from_drive()` lists and downloads PDF files, extracting candidate names and emails.
 - Text is embedded via `RemoteEmbedder` (384-dimensional unit vector) and upserted into `embeddings`.
-
-### Stage 3: Screening & Semantic Vector Search
 - The hiring goal text is embedded into a query vector $Q$.
 - Executes Supabase RPC `match_embeddings(p_run_id, 'candidate', Q, top_k=3)` using cosine distance ($1 - (E \cdot Q)$).
 - Computes rubric competency coverage fraction per candidate.
@@ -79,17 +77,18 @@ sequenceDiagram
 - Creates a Google Calendar event containing a live Google Meet room URL.
 - Manager Agent calls `send_invite()`, dispatching an email with the Meet link and time to the candidate's real email address.
 
+### Stage 4.5: WAITING_FOR_INTERVIEW
+- System pauses and awaits the scheduled interview time.
+
 ### Stage 5: Live Multimodal Audio Interview
 - At the scheduled time, `VexaClient.join_meeting()` deploys a headless Meet bot.
 - Audio frames stream bi-directionally over WebSocket `@app.websocket("/ws/audio/{meeting_id}")`.
 - `InterviewerFSM` transitions through the 8-stage interview lifecycle, injecting prompt context per stage.
 
-### Stage 6: Extractive Verbatim Evidence Scorecard
-- `ScorecardAgent.score()` evaluates the complete interview transcript.
+### Stage 6 & 7: Extractive Scorecard & Fairness (Bundled in `reporting_node`)
+- `EvaluatorAgent.evaluate_transcript()` evaluates the complete interview transcript.
 - Requires exact verbatim candidate quotes for each scored competency score ($0.0 - 1.0$).
 - Output scorecard is written to Supabase `scorecards`.
-
-### Stage 7: Demographic Cohort Fairness Matrix
 - `/fairness/heatmap` computes question difficulty across candidate cohorts (gender, ethnicity, experience level).
 - Applies $k$-anonymity suppression: if cohort sample size $n < 5$, cell difficulty values are hidden to prevent identification.
 
@@ -141,11 +140,5 @@ VEXA_API_KEY=your-vexa-api-key
 
 ## 5. Verification & Test Suite Strategy
 
-The platform is covered by **119 automated unit and integration tests** in `app/tests/` and `talentops-part1/tests/`:
-- `test_interviewer_fsm.py`: Validates FSM sequence and cue handling.
-- `test_manager_agent.py`: Validates routing decisions and escalation envelopes.
-- `test_scorecard_agent.py`: Validates verbatim quote extraction.
-- `test_voice_chain.py`: Validates WebSocket PCM audio streaming.
-- `test_logging.py`: Validates structured JSON error metrics.
-- `test_suite.py`: Validates full end-to-end graph execution (`run_pipeline`).
-- `talentops-part1/tests/`: Validates API endpoints (`/run`, `/health`, `/outbox`) and agent nodes.
+Currently, the test suite is **[Planned / WIP]**. The automated unit and integration tests originally planned for `app/tests/` and `talentops-part1/tests/` have not been implemented in the codebase.
+Testing is currently performed manually by running the backend API and frontend React application.

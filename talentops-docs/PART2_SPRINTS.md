@@ -208,9 +208,9 @@ This document provides a highly granular, task-by-task breakdown for **Part 2: V
 *   **Description:** Finalize system rules and execute the final E2E test.
 *   **Target Files:**
     *   `[MODIFY] app/agents/manager_agent.py` (Implement escalation rules)
-    *   `[NEW] tests/e2e_pilot_test.py` (Runs the full validation test)
+    *   `[PLANNED] tests/e2e_pilot_test.py` (Runs the full validation test)
 *   **Specifications:**
     *   Implement auto-email escalations: low confidence, double-conflict scheduling, no qualified candidates.
     *   Integrate all failure handling (loss of API connection, Vexa session drops).
     *   Run E2E pipeline pilot with test candidate 'Alex' from intake to final scorecard validation.
-*   **Verification:** Run the pilot test script; verify candidate 'Alex' is parsed, scheduled, sandbox-calibrated, interviewed, scored via Extractive Evaluation, and decision email is generated.
+*   **Verification:** Manually verify (or run the planned pilot test script); verify candidate 'Alex' is parsed, scheduled, sandbox-calibrated, interviewed, scored via Extractive Evaluation, and decision email is generated.

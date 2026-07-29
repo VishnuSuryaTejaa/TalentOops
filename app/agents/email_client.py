@@ -30,7 +30,7 @@ class SMTPEmailClient:
     def __init__(self):
         from app.config import get_settings
         self.settings = get_settings()
-        # outbox mirrors MockEmailClient.outbox for test introspection and in-process audit
+        # outbox stores sent messages for in-process audit
         self.outbox: list[SentMessage] = []
 
     def send(self, to: str, subject: str, body: str) -> SentMessage:
@@ -74,8 +74,4 @@ class SMTPEmailClient:
 
 
 def get_email_client() -> EmailClient:
-    from app.config import get_settings
-    settings = get_settings()
-    if settings.email_provider == "mock":
-        raise ValueError("Mock email provider is no longer supported. Enforcing REAL API execution.")
     return SMTPEmailClient()

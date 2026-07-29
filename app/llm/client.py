@@ -119,18 +119,15 @@ class RemoteLLMClient:
                 continue
 
         logger.error(
-            "Remote LLM API call failed (model=%s). No mock fallback — real error propagated. Error: %s",
+            "Remote LLM API call failed (model=%s). Error: %s",
             self._model, last_error,
         )
         raise RuntimeError(
-            f"LLM API call failed (model={self._model}): {last_error}. "
-            "Set LLM_PROVIDER=mock in .env to use mock mode explicitly."
+            f"LLM API call failed (model={self._model}): {last_error}."
         ) from last_error
 
 
 def get_llm_client() -> LLMClient:
     provider = get_settings().llm_provider
-    if provider == "mock":
-        raise ValueError("Mock LLM provider is no longer supported. Enforcing REAL API execution.")
     return RemoteLLMClient(provider)
 

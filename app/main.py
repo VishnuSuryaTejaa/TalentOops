@@ -20,10 +20,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="TalentOps")
 
-    # Validate provider configuration at startup — warns loudly if mock providers
-    # are active while IS_PRODUCTION=True so operators catch misconfigurations early.
-    from app.config import validate_production_settings
-    validate_production_settings()
+
 
     # Apply middleware for CORS, gzip compression, and logging
     app.add_middleware(
@@ -76,7 +73,7 @@ def create_app() -> FastAPI:
     @app.api_route("/rest/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def supabase_rest_fallback(path: str):
         """Fallback for Supabase PostgREST calls accidentally hitting FastAPI backend."""
-        return [] if ("select" in path or "events" in path) else {"status": "ok"}
+        raise HTTPException(status_code=404, detail="Supabase API requests should not hit the backend.")
 
 
 
@@ -481,6 +478,24 @@ def create_app() -> FastAPI:
             return await process_hr_debrief_turn(
                 interview_id=req.interview_id,
                 hr_question=req.hr_question
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    class ManagerQueryRequest(BaseModel):
+        interview_id: str
+        question: str
+        role_id: Optional[str] = "role-default"
+
+    @app.post("/manager/query")
+    async def manager_query_endpoint(req: ManagerQueryRequest) -> dict:
+        from app.agents.manager_agent import ManagerAgent
+        from fastapi import HTTPException
+        try:
+            agent = ManagerAgent(role_id=req.role_id or "role-default")
+            return await agent.answer_interview_question(
+                interview_id_or_candidate_id=req.interview_id,
+                question=req.question
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))

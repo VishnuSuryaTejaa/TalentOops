@@ -24,12 +24,25 @@ DECISION_COPY = {
 from app.services.parser import clean_candidate_name
 
 
+def _resolve_candidate_name(candidate: str) -> str:
+    """Resolve actual candidate full name from database if given a candidate ID."""
+    if not candidate or not isinstance(candidate, str):
+        return "Candidate"
+    try:
+        cand_rows = db.query_sync("candidates", id=candidate)
+        if cand_rows and cand_rows[0].get("name"):
+            return cand_rows[0]["name"]
+    except Exception:
+        pass
+    return clean_candidate_name(candidate) or "Candidate"
+
+
 def _invite_body(
     candidate: str,
     slot: str,
     room_url: str | None = None,
 ) -> tuple[str, str]:
-    display_name = clean_candidate_name(candidate)
+    display_name = _resolve_candidate_name(candidate)
     subject = "Interview invitation — next steps"
     room_info = (
         f"TalentOops Interview Room: {room_url}\n"
@@ -50,7 +63,7 @@ def _invite_body(
 
 
 def _rejection_body(candidate: str) -> tuple[str, str]:
-    display_name = clean_candidate_name(candidate)
+    display_name = _resolve_candidate_name(candidate)
     subject = "Update on your application"
     body = (
         f"Hi {display_name},\n\n"
@@ -62,7 +75,7 @@ def _rejection_body(candidate: str) -> tuple[str, str]:
 
 
 def _decision_body(candidate: str, decision: str) -> tuple[str, str]:
-    display_name = clean_candidate_name(candidate)
+    display_name = _resolve_candidate_name(candidate)
     human_decision = DECISION_COPY.get(decision.upper(), decision)
     subject = f"Interview outcome — {human_decision}"
     body = (

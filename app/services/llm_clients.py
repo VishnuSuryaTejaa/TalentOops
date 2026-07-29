@@ -13,10 +13,11 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_FALLBACK_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct",
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "google/gemini-2.0-flash-lite-001",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "google/gemini-2.0-flash-exp:free",
     "deepseek/deepseek-r1:free",
+    "qwen/qwen-2.5-coder-32b-instruct:free",
 ]
 
 
@@ -44,8 +45,16 @@ async def _post(
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 r = await client.post(url, json=body, headers=headers)
+                if r.status_code in (401, 402, 404):
+                    r.raise_for_status()
                 r.raise_for_status()
                 return r.json()["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as e:
+            last = e
+            if e.response.status_code in (401, 402, 404):
+                # Non-retryable error (unauthorized, payment required, or model not found) — break immediately
+                break
+            await asyncio.sleep(0.5 * 2**attempt)
         except Exception as e:
             last = e
             await asyncio.sleep(0.5 * 2**attempt)

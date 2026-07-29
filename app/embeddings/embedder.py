@@ -161,6 +161,4 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 def get_embedder() -> Embedder:
     settings = get_settings()
-    if settings.embed_provider == "mock":
-        raise ValueError("Mock embed provider is no longer supported. Enforcing REAL API execution.")
     return RemoteEmbedder(settings.embed_provider)

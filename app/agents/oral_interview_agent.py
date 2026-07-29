@@ -58,7 +58,7 @@ class OralInterviewAgent:
                 transcript = "[Audio transcription unparseable]"
 
         if not transcript:
-            transcript = "Candidate response"
+            raise ValueError("No transcript provided or audio unparseable.")
 
         # 2. Retrieve Candidate Resume & Projects from Supabase DB
         candidates = await db.query("candidates", id=candidate_id)

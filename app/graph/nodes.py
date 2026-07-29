@@ -205,13 +205,17 @@ async def reporting_node(state: PipelineState) -> dict:
 
     report = run_reporting(run_id, dict(state))
 
-    # Generate Manager Debrief Meet link & script for Human HR
-    from app.agents.manager_debrief import build_manager_debrief_script
-    debrief_meet = f"https://meet.google.com/mgr-{run_id[:4]}-{run_id[4:8]}"
+    # Generate Manager Debrief room URL & script for Human HR
+    from app.agents.manager_debrief import build_manager_debrief_script, create_manager_debrief_session
+    debrief_session = await create_manager_debrief_session(
+        interview_id=interview_id, candidate_id=top, run_id=run_id, final_state=dict(state)
+    )
+    debrief_url = debrief_session.get("room_url") or f"http://localhost:5173/interview/debrief-{interview_id}"
     debrief_script = build_manager_debrief_script(run_id, dict(state))
 
     manager_debrief = {
-        "meet_link": debrief_meet,
+        "room_url": debrief_url,
+        "meet_link": debrief_url,
         "script": debrief_script,
         "status": "ready",
     }
@@ -221,7 +225,7 @@ async def reporting_node(state: PipelineState) -> dict:
         "decision": report["decision"],
         "emails_sent": len(report["emails_sent"]),
         "needs_human_review": report["needs_human_review"],
-        "manager_debrief_link": debrief_meet,
+        "manager_debrief_link": debrief_url,
     })
     return {"stage": WorkflowStage.HR_DEBRIEF, "completed": ["reporting"], "report": report, "messages": [env]}
 

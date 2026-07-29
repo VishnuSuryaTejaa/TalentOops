@@ -1,7 +1,7 @@
 # TalentOps Part 2 — Handoff & Integration Guide
 
 **Audience:** the Part 1 developer (Sprints 1–3: Manager Agent core, Sourcing/Screening, Scheduling, Communication) and anyone wiring the two halves together.
-**Status:** Part 2 (Sprints 4–6) is complete — 23/23 tests green, backend on `:8000`, dashboard on `:5173`.
+**Status:** Part 2 (Sprints 4–6) is partially complete — backend on `:8000`, dashboard on `:5173` (Note: Automated tests are currently WIP/manual).
 
 ---
 
@@ -37,9 +37,6 @@ Part 2 is the **Voice Intelligence & Production** half of TalentOps: everything 
 ### Run it
 
 ```bash
-# tests (23, fully offline)
-/usr/local/bin/python3.11 -m pytest tests -q
-
 # backend (seeds demo data in offline mode)
 /usr/local/bin/python3.11 -m uvicorn app.main:app --port 8000
 
@@ -113,7 +110,7 @@ decision = await ManagerAgent(role_id).decide(scorecard)     # invite | reject |
 
 ### Suggested joint milestone
 
-Re-run `tests/e2e_pilot_test.py` (candidate "Alex") with Part 1's real supervisor driving steps 0–2 and live Supabase (set the env vars). Every table assertion in that test doubles as the integration checklist: `roles, enriched_jd, candidates, briefs, scheduling, calibration, interviews, scorecards, comms, events` all populated, every evidence quote offset-validated against the immutable transcript.
+(Planned) Run `tests/e2e_pilot_test.py` (candidate "Alex") once the test suite is implemented. Every table assertion in that test will double as the integration checklist: `roles, enriched_jd, candidates, briefs, scheduling, calibration, interviews, scorecards, comms, events` all populated, every evidence quote offset-validated against the immutable transcript.
 
 ---
 

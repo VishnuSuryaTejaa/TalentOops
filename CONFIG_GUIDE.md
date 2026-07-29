@@ -201,8 +201,4 @@ python -c "from app.config import settings; print('CORS Origins:', settings.cors
 
 ### Run Configuration Test Suite
 
-Run the unit tests in [`app/tests/config.py`](file:///Users/apple/TalentOops/app/tests/config.py) to verify validation rules and settings parsing:
-
-```bash
-pytest app/tests/config.py
-```
+*(Note: Automated configuration tests are not yet implemented. Please verify configuration manually.)*

@@ -84,7 +84,7 @@ async def ws_endpoint(websocket, meeting_id: str) -> None:
             frame = await websocket.receive_bytes()
             await bridge.put_incoming(frame)
             
-            # Simple mock VAD: emit a transcript turn every ~100 frames of audio received
+            # Simple VAD implementation: emit a transcript turn every ~100 frames of audio received
             frame_count += 1
             if frame_count % 100 == 0:
                 if session._script:

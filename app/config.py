@@ -141,40 +141,7 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-def validate_production_settings(s: Settings | None = None) -> None:
-    """Log actionable warnings when mock providers are active in IS_PRODUCTION=True mode.
 
-    Call this once at application startup (in main.py lifespan) so operators
-    are immediately alerted to misconfigured providers before the first request.
-    """
-    import logging
-    cfg = s or settings
-    _log = logging.getLogger("talentops.config.validation")
-
-    if not cfg.IS_PRODUCTION:
-        return  # Mock providers are acceptable in development / test mode
-
-    mock_warnings: list[str] = []
-    if cfg.LLM_PROVIDER == "mock":
-        mock_warnings.append("LLM_PROVIDER=mock — all LLM calls will return fake data")
-    if cfg.EMBED_PROVIDER == "mock":
-        mock_warnings.append("EMBED_PROVIDER=mock — all embeddings will be random vectors")
-    if cfg.EMAIL_PROVIDER == "mock":
-        mock_warnings.append("EMAIL_PROVIDER=mock — no real emails will be sent")
-    if cfg.STT_PROVIDER == "mock":
-        mock_warnings.append("STT_PROVIDER=mock — audio will NOT be transcribed by a real STT engine")
-    if cfg.TTS_PROVIDER == "mock":
-        mock_warnings.append("TTS_PROVIDER=mock — agent speech will NOT be synthesized by a real TTS engine")
-
-    for warning in mock_warnings:
-        _log.warning("[PRODUCTION CONFIG] %s", warning)
-
-    if mock_warnings:
-        _log.error(
-            "[PRODUCTION CONFIG] %d mock provider(s) detected in IS_PRODUCTION=True environment. "
-            "Update .env to use real API providers before serving live traffic.",
-            len(mock_warnings)
-        )
 
 
 def get_settings() -> Settings:

@@ -41,4 +41,4 @@ A Manager Agent (LangGraph supervisor) runs the full pipeline via 5 sub-agents u
 
 ## 1.7 Constraints & flags
 - Consent/recording legality: all Vexa-joined calls (candidate interviews and user reporting meetings) require jurisdiction-appropriate recording consent announced at call start; self-hosted recording = compliance responsibility fully in-house.
-- Conversational voice loop runs on the Optimized Free-Chain (Silero VAD + Groq Whisper + Groq Llama + self-hosted Kokoro TTS; turn latency ≤1.5 s P50 / ≤2.5 s P95 — D17); heavy reasoning (per-candidate interview brief, hidden-context distillation, Extractive Evaluation) is async/offline via locally hosted Llama 3.1 (Ollama).
+- Conversational voice loop runs on the Hybrid Loop API stack (Gemini Live API via WebRTC; turn latency ≤800 ms P50 / ≤1.5 s P95 — D18/D19); heavy reasoning (per-candidate interview brief, hidden-context distillation, Extractive Evaluation) is async/offline via Groq Llama 3.3 70B and OpenRouter Nemotron API. Locally hosted Ollama and local GPU requirements have been eliminated (D18).

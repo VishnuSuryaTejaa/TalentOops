@@ -42,12 +42,12 @@ app/
 
 ## 3. TDD Workflow & Quality Gates
 
-To ensure system reliability, all upgrades follow strict Test-Driven Development (TDD):
+To ensure system reliability, all upgrades currently rely on manual testing until a test suite is established:
 
-1. **RED (Write Test First)**:
-   - Write failing unit tests in `app/tests/` asserting the new `WorkflowStage` enum and envelope recipient validations before implementing code changes.
-2. **GREEN (Minimal Implementation)**:
-   - Modify target files until all tests pass.
-3. **REFACTOR & GATE (80%+ Coverage & Safety Verification)**:
-   - Run `pytest --cov=app` to verify test coverage remains above 80%.
+1. **Local Setup**:
+   - Ensure the backend and frontend can run locally without errors before implementing code changes.
+2. **Implementation**:
+   - Modify target files to implement the required changes.
+3. **Manual Verification**:
+   - Manually verify that the changes work as intended in the local environment.
    - Execute `delivery-gate` checks: compile clean frontend bundle (`npm run build`), verify 0 lint errors, and confirm no hardcoded secrets exist.

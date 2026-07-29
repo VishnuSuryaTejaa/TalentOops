@@ -21,8 +21,9 @@
    - Joins Google Meet calls with Human Candidates using a headless Vexa Chromium bot.
    - Conducts two-way audio interviews over WebSockets / Gemini Live streaming, executes the 8-stage Interview FSM, logs verbatim audio transcripts, and sends raw logs **ONLY** to the Manager Agent.
 
-5. **Candidate Evaluation Subagent (Internal)**:
+5. **Evaluator Agent (Internal)**:
    - Evaluates verbatim transcript lines against frozen rubric competencies requiring exact quote evidence.
+   - Bundled within the `reporting` node prior to HR_DEBRIEF.
    - Calculates demographic fairness metrics ($k$-anonymity with $k \ge 5$) and submits structured scorecards **ONLY** to the Manager Agent.
 
 > 🔒 **CRITICAL ARCHITECTURE RULE**: Subagents NEVER interact with or report directly to Human HR. All subagent output flows upward exclusively to the Manager Agent.
@@ -44,7 +45,7 @@ graph LR
     subgraph Internal Subagents Layer
         Screening[Resume Screening Subagent]
         Scheduling[Scheduling & GMeet Subagent]
-        Evaluation[Candidate Evaluation Subagent]
+        Evaluation[Evaluator Agent]
     end
 
     subgraph Candidate Facing Layer
@@ -112,20 +113,22 @@ graph TD
 ```mermaid
 stateDiagram-v2
     [*] --> APPLICATION_RECEIVED: Goal, Standard & Resume Corpus Ingested
-    APPLICATION_RECEIVED --> SCREENING: Drive Resume Parsing & Vector Embeddings
+    APPLICATION_RECEIVED --> SCREENING: Drive Resume Parsing & Vector Embeddings (Combined Sourcing/Screening Node)
     SCREENING --> SCHEDULING: Frozen Rubric SHA-256 & Candidate Ranking Top-K
-    SCHEDULING --> INTERVIEWING: Google Calendar Booking & Candidate Invite Sent
+    SCHEDULING --> WAITING_FOR_INTERVIEW: Google Calendar Booking & Candidate Invite Sent
+    WAITING_FOR_INTERVIEW --> INTERVIEWING: At scheduled time
     INTERVIEWING --> EVALUATION: Vexa Bot Joins GMeet & Conducts FSM Interview
-    EVALUATION --> HR_DEBRIEF: Extractive Scorecards & Cohort Fairness Matrix
+    EVALUATION --> HR_DEBRIEF: Extractive Scorecards (Evaluator Agent within Reporting Node)
     HR_DEBRIEF --> [*]: Manager AI Debriefs Human HR in GMeet Call
 ```
 
 1. **`APPLICATION_RECEIVED`**: Ingests hiring goals, evaluation standards, and resume sources (Google Drive / PDFs).
-2. **`SCREENING`**: Parses PDFs, embeds candidate profiles into 384-dim unit vectors, freezes rubric content hash ($\text{SHA-256}$), and matches top candidates via Supabase `pgvector`.
+2. **`SCREENING` (Combined with Sourcing)**: Parses PDFs, embeds candidate profiles into 384-dim unit vectors, freezes rubric content hash ($\text{SHA-256}$), and matches top candidates via Supabase `pgvector`.
 3. **`SCHEDULING`**: Finds open calendar slots via Google Calendar API, books Google Meet rooms, and sends candidate invitation emails.
-4. **`INTERVIEWING`**: Deploys headless Vexa bot to candidate Meet call, streaming PCM audio over WebSockets through the 8-stage Interviewer FSM.
-5. **`EVALUATION`**: Evaluates transcript lines requiring exact verbatim quote evidence and computes demographic cohort fairness matrices ($k \ge 5$).
-6. **`HR_DEBRIEF`**: Manager Agent synthesizes candidate report, generates a dedicated Manager Debrief Google Meet room, and verbally briefs Human HR.
+4. **`WAITING_FOR_INTERVIEW`**: Pauses workflow until the scheduled interview time.
+5. **`INTERVIEWING`**: Deploys headless Vexa bot to candidate Meet call, streaming PCM audio over WebSockets through the 8-stage Interviewer FSM.
+6. **`EVALUATION` (Bundled in Reporting Node)**: Evaluates transcript lines requiring exact verbatim quote evidence via the Evaluator Agent and computes demographic cohort fairness matrices ($k \ge 5$).
+7. **`HR_DEBRIEF`**: Manager Agent synthesizes candidate report, generates a dedicated Manager Debrief Google Meet room, and verbally briefs Human HR.
 
 ---
 

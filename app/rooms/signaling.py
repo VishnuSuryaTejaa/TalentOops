@@ -759,7 +759,7 @@ class _InteractiveRoomSession:
         from app.services.speech_engine import TTSService
 
         audio_b64 = None
-        if settings.TTS_PROVIDER and settings.TTS_PROVIDER != "mock":
+        if settings.TTS_PROVIDER:
             try:
                 tts = TTSService(settings.TTS_PROVIDER)
                 audio_b64 = await tts.synthesize_speech_b64(question_text)
@@ -827,7 +827,7 @@ class _InteractiveRoomSession:
         )
 
 
-        # Fallback to keyword probing if needed
+        # Fallback to keyword probing or short answer technical probing if needed
         lowered = candidate_text.lower()
         covered = [kw for kw in keywords if kw.lower() in lowered]
         if covered and q in self._asked_questions:
@@ -835,6 +835,9 @@ class _InteractiveRoomSession:
                 f"You mentioned {covered[0]} — can you walk me through a specific project "
                 f"or situation where you applied that? What was the outcome?"
             )
+        elif len(candidate_text.split()) < 3 and candidate_text and candidate_text.strip() not in ("__END_SESSION__", ""):
+            if candidate_text.lower() not in q.lower() and "technical" not in q.lower() and "architecture" not in q.lower():
+                q += f" Could you elaborate on technical details regarding '{candidate_text}' and how it relates to your architecture experience?"
 
         self._asked_questions.append(q)
         return q
