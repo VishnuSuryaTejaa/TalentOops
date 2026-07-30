@@ -65,7 +65,7 @@ export default function SignalChainRail({
                       className={`h-full transition-all duration-300 ${
                         idx <= activeIndex
                           ? idx === activeIndex
-                            ? 'bg-[var(--tape)] animate-signal-pulse shadow-[0_0_8px_rgba(232,163,61,0.6)]'
+                            ? 'bg-[var(--tape)] animate-signal-pulse shadow-[0_0_8px_rgba(204,255,0,0.6)]'
                             : 'bg-[var(--tape)]/50'
                           : 'bg-slate-800'
                       }`}
@@ -82,7 +82,7 @@ export default function SignalChainRail({
                   onClick={() => onStageSelect && onStageSelect(stage.id)}
                   className={`flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius)] font-mono text-xs transition-all duration-200 ${
                     isActive
-                      ? 'bg-[var(--panel)] text-[var(--tape)] border border-[var(--tape)]/60 shadow-[0_0_12px_rgba(232,163,61,0.25)] font-semibold'
+                      ? 'bg-[var(--panel)] text-[var(--tape)] border border-[var(--tape)]/60 shadow-[0_0_12px_rgba(204,255,0,0.25)] font-semibold'
                       : isCompleted
                       ? 'text-[var(--bone)] hover:text-white border border-transparent hover:border-slate-800'
                       : 'text-[var(--mute)] opacity-50 hover:opacity-80 border border-transparent'
@@ -92,7 +92,7 @@ export default function SignalChainRail({
                   <span
                     className={`w-2 h-2 rounded-full inline-block ${
                       isActive
-                        ? 'bg-[var(--tape)] animate-signal-pulse shadow-[0_0_8px_rgba(232,163,61,0.8)]'
+                        ? 'bg-[var(--tape)] animate-signal-pulse shadow-[0_0_8px_rgba(204,255,0,0.8)]'
                         : isCompleted
                         ? 'bg-[var(--tape)]/50'
                         : 'bg-slate-700'

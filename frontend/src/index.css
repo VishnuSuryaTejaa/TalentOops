@@ -1,16 +1,30 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: 'Nohemi';
+  src: url('./assets/nohemi-font-family/Nohemi-Regular-BF6a4e01a26b011.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Nohemi';
+  src: url('./assets/nohemi-font-family/Nohemi-Medium-BF6a4e01a26b011.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+}
+
 :root {
-  --ink: #0B0E14;
-  --panel: #151A24;
-  --tape: #E8A33D;
-  --signal: #5FD3C4;
+  --ink: #0a0a0a;
+  --panel: rgba(23, 23, 23, 0.6);
+  --tape: #ccff00;
+  --signal: #00f0ff;
   --alert: #FF6B5B;
-  --bone: #EDE6D9;
+  --bone: #ffffff;
   --mute: #7C8394;
 
-  --font-display: 'Bricolage Grotesque', sans-serif;
-  --font-body: 'IBM Plex Sans', sans-serif;
+  --font-display: 'Nohemi', sans-serif;
+  --font-body: 'Nohemi', sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
   --radius: 6px;
@@ -18,17 +32,24 @@
 }
 
 @theme {
-  --font-display: 'Bricolage Grotesque', sans-serif;
-  --font-sans: 'IBM Plex Sans', sans-serif;
+  --font-display: 'Nohemi', sans-serif;
+  --font-sans: 'Nohemi', sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
-  --color-ink: #0B0E14;
-  --color-panel: #151A24;
-  --color-tape: #E8A33D;
-  --color-signal: #5FD3C4;
+  --color-ink: #0a0a0a;
+  --color-panel: rgba(23, 23, 23, 0.6);
+  --color-tape: #ccff00;
+  --color-signal: #00f0ff;
   --color-alert: #FF6B5B;
-  --color-bone: #EDE6D9;
+  --color-bone: #ffffff;
   --color-mute: #7C8394;
+  
+  --text-xs: 0.9375rem;
+  --text-sm: 1.0625rem;
+  --text-base: 1.1875rem;
+  --text-lg: 1.3125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.75rem;
 }
 
 *, *::before, *::after {
@@ -63,19 +84,21 @@ html, body {
 /* Structural Components & Panels */
 .panel {
   background-color: var(--panel);
-  border: 1px solid rgba(124, 131, 148, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--radius);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 /* Signal Chain Rail Pulse (2.4s ease-in-out ambient animation) */
 @keyframes signalPulse {
   0%, 100% {
     opacity: 0.4;
-    box-shadow: 0 0 4px rgba(232, 163, 61, 0.2);
+    box-shadow: 0 0 4px rgba(204, 255, 0, 0.2);
   }
   50% {
     opacity: 1;
-    box-shadow: 0 0 12px rgba(232, 163, 61, 0.6);
+    box-shadow: 0 0 12px rgba(204, 255, 0, 0.6);
   }
 }
 
@@ -105,4 +128,28 @@ html, body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--mute);
+}
+
+/* Background Animations */
+@keyframes blob {
+  0% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+
+.animate-blob {
+  animation: blob 12s infinite cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+
+.animation-delay-6000 {
+  animation-delay: 6s;
 }

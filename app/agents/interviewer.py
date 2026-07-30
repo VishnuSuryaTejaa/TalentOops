@@ -1,4 +1,4 @@
-"""Interviewer sub-agent: bridges Supervisor graph to InterviewerFSM & Vexa meeting client."""
+"""Interviewer sub-agent: bridges Supervisor graph to InterviewerFSM."""
 from __future__ import annotations
 
 import logging
@@ -17,35 +17,7 @@ def run_interview(run_id: str, rubric: Rubric, candidate_id: str, meet_link: str
     """Execute or prepare live interview for candidate based on frozen rubric."""
     interview_id = f"iv-{candidate_id}-{run_id[:8]}"
     
-    # Trigger Vexa chromium bot if meet_link is provided
-    vexa_res = None
-    if meet_link:
-        try:
-            import asyncio
-            from app.services.vexa_client import get_vexa_client
-            vexa_client = get_vexa_client()
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(vexa_client.join_meeting(
-                    meet_url=meet_link,
-                    bot_name="TalentOps Interviewer",
-                    voice_context=f"Role: {rubric.standard}",
-                    interview_id=interview_id,
-                ))
-                vexa_res = {"status": "joining_background"}
-            except RuntimeError:
-                vexa_res = asyncio.run(vexa_client.join_meeting(
-                    meet_url=meet_link,
-                    bot_name="TalentOps Interviewer",
-                    voice_context=f"Role: {rubric.standard}",
-                    interview_id=interview_id,
-                ))
-            logger.info("Vexa bot joined meeting: %s", vexa_res)
-        except Exception as e:
-            logger.error("Vexa meeting join failed: %s", e)
-            raise
-    
-    # Store candidate and role records in DB so Vexa and Scorecard can reference them
+    # Store candidate and role records in DB so Scorecard can reference them
     role_dict = {
         "id": run_id,
         "jd": rubric.standard,
@@ -69,7 +41,7 @@ def run_interview(run_id: str, rubric: Rubric, candidate_id: str, meet_link: str
 
     # Derive coverage rate from rubric competency count
     coverage_rate = 1.0 if rubric.competencies else 0.0
-    # Score derived from coverage (Vexa/GeminiLive produces the real score via transcript)
+    # Score derived from coverage (GeminiLive produces the real score via transcript)
     overall_score = min(1.0, 0.5 + (0.5 * coverage_rate))
 
     decision = evaluate_confidence(
@@ -86,7 +58,6 @@ def run_interview(run_id: str, rubric: Rubric, candidate_id: str, meet_link: str
         "coverage_rate": coverage_rate,
         "needs_review": decision.needs_review,
         "fsm_state": fsm.state.name,
-        "vexa": vexa_res,
         "reason": decision.reason,
     }
 
@@ -161,35 +132,40 @@ async def generate_dynamic_question(
     turn_num = len(history) + 1
     if is_first_turn:
         system_prompt = (
-            f"You are a Senior Technical Interviewer for the role: {job_title}.\n"
+            f"You are an adaptable, real-time interviewer for the role: {job_title}.\n"
             f"Turn 1 (Opening Question)\n"
             f"Candidate Resume: {parsed_resume_text[:1500]}\n"
             f"Role Requirements: {job_description[:800]}\n"
-            f"Interview Phase: {state_str}\n"
-            f"Competencies to evaluate: {uncovered_text}\n\n"
-            f"Ask ONE targeted opening technical question that references something specific from the candidate's resume above.\n"
+            f"Interview Phase: {state_str}\n\n"
+            f"Ask ONE targeted opening question based dynamically on:\n"
+            f"1. Role Requirements\n"
+            f"2. The candidate's skills, experience, and projects from their resume\n"
+            f"Be conversational and non-deterministic. Do not use generic question templates. Do not restrict yourself to fixed competencies.\n"
             f"{LENGTH_RULE}"
         )
-        user_prompt = "Ask the opening technical interview question."
+        user_prompt = "Ask a unique opening interview question based on my resume and the role requirements."
     else:
         system_prompt = (
-            f"You are a Senior Technical Interviewer for the role: {job_title}.\n"
+            f"You are an adaptable, real-time interviewer for the role: {job_title}.\n"
             f"Turn {turn_num}\n"
             f"Candidate Resume: {parsed_resume_text[:1500]}\n"
             f"Role Requirements: {job_description[:800]}\n"
             f"Interview Phase: {state_str}\n"
-            f"Uncovered Competencies: {uncovered_text}\n"
             f"Full Interview History So Far ({len(history_summary)} turns): {history_summary}\n"
             f"Latest Candidate Answer: {last_candidate_answer[:600]}\n\n"
             f"Do NOT claim or state that this is the beginning of the interview.\n"
-            f"Generate ONE follow-up question that probes deeper on '{uncovered_text}', "
-            f"references something specific the candidate just said, and is NOT semantically "
+            f"Generate ONE highly dynamic follow-up question. Formulate the question in real-time based purely on:\n"
+            f"1. Role Requirements\n"
+            f"2. The candidate's skills, experience, and projects from their resume\n"
+            f"3. Building directly upon the candidate's previous answers.\n"
+            f"Do not restrict yourself to fixed competencies or predefined roles.\n"
+            f"Avoid rigid patterns or fixed question types. Ensure it is NOT semantically "
             f"similar to: {asked_questions_list[-5:] if asked_questions_list else []}.\n"
             f"{LENGTH_RULE}"
         )
         user_prompt = (
             f"Latest answer: {last_candidate_answer[:400]}\n"
-            f"Ask the next probing follow-up question targeting: {uncovered_text}."
+            f"Ask the next unique probing follow-up question based on my answer, resume, and role requirements."
         )
 
     try:
@@ -204,9 +180,9 @@ async def generate_dynamic_question(
         # BUG-02: cap at 100 tokens so the LLM cannot produce verbose multi-sentence questions
         question = ""
         if settings.LLM_PROVIDER == "groq" and (settings.GROQ_API_KEY or getattr(settings, "GROQ_API_KEY2", "")):
-            question = await groq_chat(messages, max_tokens=100)
+            question = await groq_chat(messages, max_tokens=100, temperature=0.9)
         elif settings.OPENROUTER_API_KEY:
-            question = await openrouter_chat(messages, max_tokens=100)
+            question = await openrouter_chat(messages, max_tokens=100, temperature=0.9)
         else:
             from app.llm.client import get_llm_client
             client = get_llm_client()

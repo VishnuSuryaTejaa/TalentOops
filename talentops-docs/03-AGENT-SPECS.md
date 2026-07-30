@@ -1,7 +1,7 @@
 # Deliverable 3 — Agent Spec Sheets (rev 2)
 
 **Voice ownership rule (absolute — applies to every spec below):** Manager Agent speaks only in user-facing calls / reporting meetings; Interviewer sub-agent speaks only in candidate interview calls; no agent ever appears in the other's voice context. The Pre-Flight Sandbox is a mode of the Interviewer sub-agent's session, not a new speaker (D12). Enforced by the session broker (§2.3).
-**Consent/recording legality:** every Vexa-joined call (either voice context, sandbox included) requires jurisdiction-appropriate recording consent announced at call start; self-hosted recording = compliance responsibility fully in-house.
+**Consent/recording legality:** every WebRTC-joined call (either voice context, sandbox included) requires jurisdiction-appropriate recording consent announced at call start; self-hosted recording = compliance responsibility fully in-house.
 
 ## 3.1 Manager Agent
 | Field | Spec |
@@ -22,10 +22,10 @@
 **Reporting flow (to user only):**
 1. Async digest email (Gmail API) — daily/on-demand: pipeline state, rankings, blockers, decisions needed.
 2. On-demand email query — reply from latest Supabase state; no sub-agent re-run unless data is stale → `[STALE: re-run Scorecard?]`.
-3. Live reporting meeting — user's Google Meet via Vexa bot; answers from latest Supabase state; never re-runs sub-agents mid-call; barge-in on user speech (Silero VAD).
+3. Live reporting meeting — user's Google Meet via WebRTC client; answers from latest Supabase state; never re-runs sub-agents mid-call; barge-in on user speech (Silero VAD).
 4. Escalation — auto-email user on triggers below.
 
-**Voice pipeline (user meetings — rev 4, D18/D19):** Vexa bot join → session broker issues `voice_context: "user"` → WebRTC connection to `gemini-3.1-flash-live-preview` (fallback: `gemini-2.5-flash-native-audio`); native audio conversation; barge-in native; Gemini Live auto-generates raw text transcript → Supabase. Gemini Live is the conversational interface only — no scoring output produced in this path. Turn-latency target ≤800 ms P50 / ≤1.5 s P95 (D18/D19; measured in S4).
+**Voice pipeline (user meetings — rev 4, D18/D19):** WebRTC client join → session broker issues `voice_context: "user"` → WebRTC connection to `gemini-3.1-flash-live-preview` (fallback: `gemini-2.5-flash-native-audio`); native audio conversation; barge-in native; Gemini Live auto-generates raw text transcript → Supabase. Gemini Live is the conversational interface only — no scoring output produced in this path. Turn-latency target ≤800 ms P50 / ≤1.5 s P95 (D18/D19; measured in S4).
 
 **Failure modes:** ambiguous evaluation standard; conflicting sub-agent reports; stale state mid-meeting; digest delivery failure; scrape-source unavailability (degrade to plain JD embedding, flagged).
 **Escalation rules (auto-email user):** sub-agent confidence < threshold [TBD]; candidate double-conflicts/rejects; no qualified candidates after N sourcing cycles [TBD]; `[NEEDS_HUMAN_REVIEW]` count per candidate exceeds limit [TBD].
@@ -87,16 +87,16 @@
 
 ### Voice pipeline — Hybrid Loop (D18/D19)
 **Phase 1 — Live audio conversation:**
-1. Joins candidate Google Meet via self-hosted Vexa bot, own identity ("TalentOps Interviewer").
+1. Joins candidate Google Meet via self-hosted WebRTC client, own identity ("TalentOps Interviewer").
 2. Session broker issues a `voice_context: "candidate"` session → WebRTC connection to `gemini-3.1-flash-live-preview`.
 3. `gemini-3.1-flash-live-preview` conducts the live audio conversation: native VAD for turn detection + barge-in; native in-session reasoning for next question/follow-up generation from per-candidate interview brief + conversation history; native TTS output to candidate.
 4. Gemini Live auto-generates a raw text transcript (both sides: interviewer + candidate) → streamed to the immutable audit trail in Supabase `interviews` table.
-5. **Gemini Live produces NO scoring, competency rating, or evaluation output.** Its role is strictly conversational. Turn-latency target ≤800 ms P50 / ≤1.5 s P95 (D18/D19; includes full routing: Candidate → Meet → Vexa → FastAPI → Gemini API → return).
+5. **Gemini Live produces NO scoring, competency rating, or evaluation output.** Its role is strictly conversational. Turn-latency target ≤800 ms P50 / ≤1.5 s P95 (D18/D19; includes full routing: Candidate → Meet → WebRTC → FastAPI → Gemini API → return).
 
 **Phase 2 — Async text-only scoring (Hybrid Loop — D19; structural prosody enforcement):**
 6. After call: raw text transcript (text only, NO audio) passed to Analytics/Scorecard sub-agent → Groq Llama 3.3 70B / OpenRouter Nemotron performs ALL evaluation and Extractive Evaluation scoring exclusively on text. Paralinguistic signals are structurally absent from the text transcript — the text IS the blind wall.
 
-**Failure modes:** `gemini-3.1-flash-live-preview` quota exhaustion mid-call (mitigate: graceful session termination + fallback; partial transcript preserved); Vexa WebRTC bridge drop; transcript generation gap; adaptive question drift off-rubric; protected-attribute drift; no-show; sandbox telemetry gate failure.
+**Failure modes:** `gemini-3.1-flash-live-preview` quota exhaustion mid-call (mitigate: graceful session termination + fallback; partial transcript preserved); WebRTC WebRTC bridge drop; transcript generation gap; adaptive question drift off-rubric; protected-attribute drift; no-show; sandbox telemetry gate failure.
 **Escalation:** confidence < threshold → `[NEEDS_HUMAN_REVIEW]`; anomaly flags; unrecoverable session failure → end call gracefully, report partial transcript; failed telemetry gate → reschedule via Manager Agent.
 
 ## 3.5 Analytics/Scorecard sub-agent

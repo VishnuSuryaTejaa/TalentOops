@@ -1,7 +1,7 @@
 {
   "version": "1.2.0",
   "locked": true,
-  "change_policy": "Any change requires a dated DECISIONS.md entry. v1.1.0 changes authorized by D12/D13/D14/D16; v1.1.1 (meeting_ref: recall.ai -> vexa) authorized by D17; v1.2.0 (gemini_session_config added; hybrid_loop_compliance added; scorecard input clarified as text-only) authorized by D18/D19.",
+  "change_policy": "Any change requires a dated DECISIONS.md entry. v1.1.0 changes authorized by D12/D13/D14/D16; v1.1.1 (meeting_ref: recall.ai -> webrtc) authorized by D17; v1.2.0 (gemini_session_config added; hybrid_loop_compliance added; scorecard input clarified as text-only) authorized by D18/D19.",
   "envelope": {
     "msg_id": "uuid",
     "ts": "ISO-8601",
@@ -39,7 +39,7 @@
       "interview_brief_ref": "uuid (per-candidate interview brief)",
       "candidate_profile_ref": "uuid",
       "resume_ref": "uuid",
-      "meeting_ref": "vexa session id",
+      "meeting_ref": "webrtc session id",
       "gemini_session_config": {
         "primary_model": "gemini-3.1-flash-live-preview",
         "fallback_model": "gemini-2.5-flash-native-audio",

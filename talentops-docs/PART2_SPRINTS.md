@@ -8,26 +8,26 @@ This document provides a highly granular, task-by-task breakdown for **Part 2: V
 **Theme:** Establish the meeting transport, audio routing, and the calibration sandbox.
 **Exit Criteria:** Test call on a scripted brief completes with a live chain-native transcript and working barge-in; turn latency ≤1.5s P50 / ≤2.5s P95; sandbox-to-interview handover verified; voice ownership rule strictly enforced (Manager cannot obtain a candidate-context session).
 
-### [x] Task 4.1: Vexa Bot Deployment & Meet Lifecycle Integration
-*   **Description:** Integrate the self-hosted Vexa Google Meet bot to handle joining/leaving calls, managing meeting presence, and relaying raw audio streams.
+### [x] Task 4.1: WebRTC client Deployment & Meet Lifecycle Integration
+*   **Description:** Integrate the self-hosted WebRTC Client to handle joining/leaving calls, managing meeting presence, and relaying raw audio streams.
 *   **Target Files:**
-    *   `[NEW] app/services/vexa_client.py` (Vexa API client wrapper)
-    *   `[MODIFY] app/api/routes/webhooks.py` (FastAPI route to handle Vexa join/leave events)
+    *   `[NEW] app/services/webrtc_client.py` (WebRTC API client wrapper)
+    *   `[MODIFY] app/api/routes/webhooks.py` (FastAPI route to handle WebRTC join/leave events)
 *   **Specifications:**
-    *   Configure Vexa bot to connect to a target Google Meet URL.
+    *   Configure WebRTC client to connect to a target Google Meet URL.
     *   Handle Google Meet participant join/leave events.
     *   Shift media stream ownership cleanly to the session broker.
-*   **Verification:** Verify Vexa bot joins a test Google Meet and logs audio connections in the console.
+*   **Verification:** Verify WebRTC client joins a test Google Meet and logs audio connections in the console.
 
 ### [x] Task 4.2: FastAPI Audio Bridge & Stream Handlers
-*   **Description:** Build the asynchronous audio bridge using FastAPI WebSockets/asyncio streams to receive raw incoming audio bytes from Vexa and send outbound audio bytes.
+*   **Description:** Build the asynchronous audio bridge using FastAPI WebSockets/asyncio streams to receive raw incoming audio bytes from WebRTC and send outbound audio bytes.
 *   **Target Files:**
     *   `[NEW] app/services/audio_bridge.py` (FastAPI WebSockets / asyncio stream handler)
 *   **Specifications:**
     *   Create bidirectional WebSocket server to stream audio frames.
     *   Ensure thread-safe queuing of incoming and outgoing audio packets.
     *   Implement buffer queues to accommodate transient network fluctuations without dropping frames.
-*   **Verification:** Run audio loopback test verifying raw audio bytes from Vexa can be received and echoed back.
+*   **Verification:** Run audio loopback test verifying raw audio bytes from WebRTC can be received and echoed back.
 
 ### [x] Task 4.3: Hybrid Loop Phase 1 — Gemini Live WebRTC Session
 *   **Description:** Implement the live audio conversation session using `gemini-3.1-flash-live-preview` via WebRTC, replacing the former multi-stage chain. This is the conversational interface only — no scoring output permitted.
@@ -36,12 +36,12 @@ This document provides a highly granular, task-by-task breakdown for **Part 2: V
     *   `[NEW] app/services/transcript_streamer.py` (Streams Gemini Live auto-transcript to Supabase immutable audit trail)
 *   **Specifications:**
     *   Open a `voice_context`-keyed WebRTC session to `gemini-3.1-flash-live-preview`.
-    *   Bridge Vexa audio stream (from Google Meet) into the Gemini Live WebRTC endpoint.
+    *   Bridge WebRTC audio stream (from Google Meet) into the Gemini Live WebRTC endpoint.
     *   Gemini Live handles native VAD (turn detection + barge-in), STT, in-session reasoning (next question/follow-up from interview brief), and TTS natively.
     *   **CRITICAL — Hybrid Loop constraint:** Gemini Live is the conversational interface only. `scoring_output` MUST be `false` per AGENT_CONTRACTS.json v1.2.0. Gemini Live MUST NOT return any competency ratings, scores, or evaluation output.
     *   Gemini Live auto-generates a raw text transcript (both sides) — stream this to the `interviews` table in Supabase (immutable).
     *   Implement fallback: if `gemini-3.1-flash-live-preview` is unavailable/quota-exhausted, gracefully switch to `gemini-2.5-flash-native-audio`; preserve partial transcript.
-*   **Verification:** Full audio loopback test through Vexa → WebRTC → Gemini Live; verify auto-transcript appears in Supabase `interviews` table; verify no scoring fields are present in Gemini Live’s output; verify barge-in interrupts correctly; turn latency measured against ≤800 ms P50 / ≤1.5 s P95.
+*   **Verification:** Full audio loopback test through WebRTC → WebRTC → Gemini Live; verify auto-transcript appears in Supabase `interviews` table; verify no scoring fields are present in Gemini Live’s output; verify barge-in interrupts correctly; turn latency measured against ≤800 ms P50 / ≤1.5 s P95.
 
 ### [x] Task 4.4: Pre-Flight Sandbox (Phase 0) & Telemetry Gate
 *   **Description:** Implement the 2-minute non-graded candidate calibration mode inside the Interviewer session.
@@ -154,7 +154,7 @@ This document provides a highly granular, task-by-task breakdown for **Part 2: V
 *   **Target Files:**
     *   `[NEW] app/agents/manager_voice.py` (Manager voice meeting handler)
 *   **Specifications:**
-    *   Join meeting via Vexa bot with `voice_context: "user"`.
+    *   Join meeting via WebRTC client with `voice_context: "user"`.
     *   Open WebRTC session to `gemini-3.1-flash-live-preview` (user context — voice ownership rule enforced by session broker).
     *   Retrieve latest Supabase pipeline state to answer manager questions.
     *   Strictly prohibit running sub-agents or altering rubric data mid-meeting.
@@ -211,6 +211,6 @@ This document provides a highly granular, task-by-task breakdown for **Part 2: V
     *   `[PLANNED] tests/e2e_pilot_test.py` (Runs the full validation test)
 *   **Specifications:**
     *   Implement auto-email escalations: low confidence, double-conflict scheduling, no qualified candidates.
-    *   Integrate all failure handling (loss of API connection, Vexa session drops).
+    *   Integrate all failure handling (loss of API connection, WebRTC session drops).
     *   Run E2E pipeline pilot with test candidate 'Alex' from intake to final scorecard validation.
 *   **Verification:** Manually verify (or run the planned pilot test script); verify candidate 'Alex' is parsed, scheduled, sandbox-calibrated, interviewed, scored via Extractive Evaluation, and decision email is generated.

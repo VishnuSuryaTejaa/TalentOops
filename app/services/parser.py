@@ -221,7 +221,7 @@ def extract_candidate_metadata(resume_text: str, file_name: str | None = None) -
 def extract_sections_by_regex(text: str) -> dict[str, str]:
     """Parse text into section headers: SUMMARY, SKILLS, PROJECTS, EXPERIENCE, EDUCATION."""
     headers_pat = re.compile(
-        r"\n(?=\s*(?:PROJECTS?|WORK\s+EXPERIENCE|EXPERIENCE|EMPLOYMENT\s+HISTORY|EDUCATION|TECHNICAL\s+SKILLS|SKILLS|SUMMARY|PROFESSIONAL\s+SUMMARY|OBJECTIVE)\b[:\s\n])",
+        r"\n(?=\s*(?:(?:PERSONAL\s+|ACADEMIC\s+)?PROJECTS?|(?:WORK\s+|PROFESSIONAL\s+)?EXPERIENCE|EMPLOYMENT\s+HISTORY|EDUCATION|ACADEMICS?|TECHNICAL\s+SKILLS|SKILLS|SUMMARY|PROFESSIONAL\s+SUMMARY|OBJECTIVE)\b[:\s\n])",
         re.IGNORECASE,
     )
     parts = headers_pat.split(text)
@@ -232,7 +232,7 @@ def extract_sections_by_regex(text: str) -> dict[str, str]:
         if not part_clean:
             continue
         header_match = re.match(
-            r"^(PROJECTS?|WORK\s+EXPERIENCE|EXPERIENCE|EMPLOYMENT\s+HISTORY|EDUCATION|TECHNICAL\s+SKILLS|SKILLS|SUMMARY|PROFESSIONAL\s+SUMMARY|OBJECTIVE)\b[:\s\n]*(.*)",
+            r"^(?:PERSONAL\s+|ACADEMIC\s+)?(PROJECTS?|(?:WORK\s+|PROFESSIONAL\s+)?EXPERIENCE|EMPLOYMENT\s+HISTORY|EDUCATION|ACADEMICS?|TECHNICAL\s+SKILLS|SKILLS|SUMMARY|PROFESSIONAL\s+SUMMARY|OBJECTIVE)\b[:\s\n]*(.*)",
             part_clean,
             re.IGNORECASE | re.DOTALL,
         )
@@ -243,7 +243,7 @@ def extract_sections_by_regex(text: str) -> dict[str, str]:
                 sections["projects"] = hdr_body
             elif "EXPERIENCE" in hdr_name or "EMPLOYMENT" in hdr_name:
                 sections["experience"] = hdr_body
-            elif "EDUCATION" in hdr_name:
+            elif "EDUCATION" in hdr_name or "ACADEMIC" in hdr_name:
                 sections["education"] = hdr_body
             elif "SKILL" in hdr_name:
                 sections["skills"] = hdr_body
@@ -371,7 +371,7 @@ def parse_docx_bytes(docx_bytes: bytes) -> str:
         raise ResumeParseError(f"Failed to parse DOCX content: {e}") from e
 
 
-def parse_resume_bytes(
+async def parse_resume_bytes(
     content: bytes,
     file_name: str = "resume.pdf",
     max_size_bytes: int = _DEFAULT_MAX_SIZE_BYTES,
@@ -408,13 +408,85 @@ def parse_resume_bytes(
     phone = meta.get("phone") or ""
     candidate_name = meta.get("full_name") or ""
 
-    sections = extract_sections_by_regex(raw_text)
-    summary = sections.get("summary") or ""
-    skills = extract_skills_word_boundary(raw_text)
+    # Call the new LLM-based parser agent
+    from app.agents.parser_agent import parse_resume_with_llm
+    
+    llm_data = {}
+    try:
+        llm_data = await parse_resume_with_llm(raw_text)
+    except Exception as e:
+        logger.error("LLM parser failed: %s, falling back to regex extraction", e)
 
-    # Extract projects from projects section or full text
-    projects_raw = sections.get("projects") or ""
-    projects = extract_projects_from_section(projects_raw)
+    # Use LLM data if present, otherwise fallback to regex extraction
+    if llm_data:
+        summary = llm_data.get("summary") or ""
+        skills = llm_data.get("skills") or []
+        
+        projects = []
+        for p in llm_data.get("projects", []):
+            projects.append(CandidateProject(
+                title=p.get("title", "Unknown Project")[:150],
+                description=p.get("description", "")[:1000],
+                technologies=p.get("technologies", []),
+                url=p.get("url", "")
+            ))
+            
+        experience = []
+        for e in llm_data.get("experience", []):
+            experience.append(CandidateExperience(
+                company=e.get("company", ""),
+                role=e.get("role", ""),
+                dates=e.get("dates", ""),
+                description=e.get("description", "")[:1000]
+            ))
+            
+        education = []
+        for edu in llm_data.get("education", []):
+            education.append(CandidateEducation(
+                degree=edu.get("degree", "")[:500],
+                institution=edu.get("institution", ""),
+                year=edu.get("year", "")
+            ))
+    else:
+        # Regex Fallback
+        sections = extract_sections_by_regex(raw_text)
+        summary = sections.get("summary") or ""
+        skills = extract_skills_word_boundary(raw_text)
+
+        # Extract projects from projects section or full text
+        projects_raw = sections.get("projects") or ""
+        projects = extract_projects_from_section(projects_raw)
+        
+        if not projects:
+            # Fallback: look for generic project indicators in the raw text
+            proj_matches = re.findall(r"(?:^|\n)([^\n]*?(?:github\.com|built a|developed a|created a|personal project)[^\n]*(?:\n[^\n]*){0,3})", raw_text, re.IGNORECASE)
+            if proj_matches:
+                for match in set(proj_matches):
+                    if len(match.strip()) > 20:
+                        projects.append(CandidateProject(
+                            title="Inferred Project",
+                            description=match.strip()[:1000],
+                            technologies=extract_skills_word_boundary(match)
+                        ))
+                        break # just grab one for fallback
+
+        experience_raw = sections.get("experience") or ""
+        experience = []
+        if experience_raw.strip():
+            experience.append(CandidateExperience(description=experience_raw.strip()[:1000]))
+
+        education_raw = sections.get("education") or ""
+        education = []
+        if education_raw.strip():
+            education.append(CandidateEducation(degree=education_raw.strip()[:500]))
+        
+        if not education:
+            # Fallback for education
+            edu_matches = re.findall(r"(?:^|\n)([^\n]*?(?:University|College|Bachelor|Master|PhD|B\.S\.|B\.Tech|M\.Tech|M\.S\.|B\.A\.|M\.A\.)[^\n]*)", raw_text, re.IGNORECASE)
+            if edu_matches:
+                edu_text = " | ".join(set(edu_matches))[:500]
+                if edu_text.strip():
+                    education.append(CandidateEducation(degree=edu_text.strip()))
 
     return ParsedResume(
         raw_text=raw_text,
@@ -426,11 +498,13 @@ def parse_resume_bytes(
         summary=summary,
         skills=skills,
         projects=projects,
+        experience=experience,
+        education=education,
         metadata={"content_length": len(content), "char_count": len(raw_text)}
     )
 
 
-def parse_resume(path: str) -> ParsedResume:
+async def parse_resume(path: str) -> ParsedResume:
     """Parse a resume file path into ParsedResume."""
     if not os.path.exists(path):
         raise ResumeParseError(f"Resume file path does not exist: {path}")
@@ -439,4 +513,4 @@ def parse_resume(path: str) -> ParsedResume:
         content = f.read()
 
     filename = os.path.basename(path)
-    return parse_resume_bytes(content, file_name=filename)
+    return await parse_resume_bytes(content, file_name=filename)

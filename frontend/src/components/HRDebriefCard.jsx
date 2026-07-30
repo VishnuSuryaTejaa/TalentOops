@@ -117,7 +117,7 @@ export default function HRDebriefCard({ interviewId = '', candidateId = '' }) {
   const status = session?.status || 'MANAGER AGENT WAITING';
 
   return (
-    <div className="panel flex flex-col bg-[var(--panel)] border-[var(--signal)]/40 overflow-hidden shadow-[0_0_15px_rgba(95,211,196,0.1)]">
+    <div className="panel flex flex-col bg-[var(--panel)] border-[var(--signal)]/40 overflow-hidden shadow-[0_0_15px_rgba(0,240,255,0.1)]">
       
       {/* Control Room Broadcast Bar - HR Debrief Chrome */}
       <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-[#0F131D]/90 select-none">
@@ -142,7 +142,7 @@ export default function HRDebriefCard({ interviewId = '', candidateId = '' }) {
             href={roomUrl}
             target="_blank"
             rel="noreferrer"
-            className="px-3 py-1 bg-[var(--signal)]/20 text-[var(--signal)] border border-[var(--signal)]/50 hover:bg-[var(--signal)]/30 font-semibold rounded-[var(--radius)] transition-all flex items-center gap-1.5 shadow-[0_0_8px_rgba(95,211,196,0.2)]"
+            className="px-3 py-1 bg-[var(--signal)]/20 text-[var(--signal)] border border-[var(--signal)]/50 hover:bg-[var(--signal)]/30 font-semibold rounded-[var(--radius)] transition-all flex items-center gap-1.5 shadow-[0_0_8px_rgba(0,240,255,0.2)]"
           >
             <span>🎙️</span> JOIN LIVE ROOM
           </a>
@@ -174,7 +174,7 @@ export default function HRDebriefCard({ interviewId = '', candidateId = '' }) {
             <button
               type="submit"
               disabled={asking || !hrQuestion.trim()}
-              className="px-5 py-3 bg-[var(--signal)] text-[var(--ink)] font-mono font-bold text-xs rounded-[var(--radius)] hover:bg-[#72dfd1] transition-all disabled:opacity-40 shadow-[0_0_12px_rgba(95,211,196,0.3)]"
+              className="px-5 py-3 bg-[var(--signal)] text-[var(--ink)] font-mono font-bold text-xs rounded-[var(--radius)] hover:bg-[#33f3ff] transition-all disabled:opacity-40 shadow-[0_0_12px_rgba(0,240,255,0.3)]"
             >
               {asking ? '⚡ QUERYING...' : 'TRANSMIT QUESTION'}
             </button>

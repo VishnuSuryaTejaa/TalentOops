@@ -484,9 +484,6 @@ class _InteractiveRoomSession:
 
             # ── Interactive turn loop ─────────────────────────────────────
             turn_count = 0
-            competencies = self._rubric.get("competencies", [
-                {"competency_id": "core_skills", "keywords": ["python", "backend"]}
-            ])
 
             # BUG-03: Broadcast duration to frontend so it can show a countdown
             if deadline is not None:
@@ -608,17 +605,11 @@ class _InteractiveRoomSession:
                 if turn_count >= self.MAX_TURNS:
                     break
 
-                # ── Generate next question from competency coverage ────────
-                comp_idx = turn_count % len(competencies)
-                comp = competencies[comp_idx]
-                comp_id = comp.get("competency_id", "")
-                keywords = comp.get("keywords", [])
+                # ── Generate next question dynamically ────────
 
                 # Build a dynamic follow-up question using full interview history
                 next_question = await self._generate_follow_up(
                     candidate_text=candidate_text,
-                    competency_id=comp_id,
-                    keywords=keywords,
                     turn_number=turn_count,
                 )
                 current_question = next_question
@@ -797,8 +788,6 @@ class _InteractiveRoomSession:
     async def _generate_follow_up(
         self,
         candidate_text: str,
-        competency_id: str,
-        keywords: list[str],
         turn_number: int,
     ) -> str:
         """Generate a dynamic contextual follow-up question based on candidate answer."""
@@ -827,15 +816,8 @@ class _InteractiveRoomSession:
         )
 
 
-        # Fallback to keyword probing or short answer technical probing if needed
-        lowered = candidate_text.lower()
-        covered = [kw for kw in keywords if kw.lower() in lowered]
-        if covered and q in self._asked_questions:
-            q = (
-                f"You mentioned {covered[0]} — can you walk me through a specific project "
-                f"or situation where you applied that? What was the outcome?"
-            )
-        elif len(candidate_text.split()) < 3 and candidate_text and candidate_text.strip() not in ("__END_SESSION__", ""):
+        # Fallback to short answer technical probing if needed
+        if len(candidate_text.split()) < 3 and candidate_text and candidate_text.strip() not in ("__END_SESSION__", ""):
             if candidate_text.lower() not in q.lower() and "technical" not in q.lower() and "architecture" not in q.lower():
                 q += f" Could you elaborate on technical details regarding '{candidate_text}' and how it relates to your architecture experience?"
 

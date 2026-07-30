@@ -23,7 +23,7 @@ sequenceDiagram
     participant Supabase as Supabase DB (pgvector)
     participant Supervisor as LangGraph Supervisor
     participant SubAgents as Sub-Agents (Sourcing/Screening/Scheduling)
-    participant Vexa as Vexa Google Meet Bot
+    participant WebRTC as WebRTC Client
     participant Gemini as Gemini Live Audio Engine
     participant Evaluator as Evaluator Agent
 
@@ -41,16 +41,16 @@ sequenceDiagram
     SubAgents-->>User: Dispatch Candidate Invite Email (SMTP)
     
     Supervisor->>SubAgents: Interviewer Node
-    SubAgents->>Vexa: Deploy Bot to Candidate Meet URL
-    Vexa<->>Gemini: Bi-directional Audio Stream (/ws/audio)
+    SubAgents->>WebRTC: Deploy Bot to Candidate Meet URL
+    WebRTC<->>Gemini: Bi-directional Audio Stream (/ws/audio)
     
     Supervisor->>SubAgents: Reporting Node
     SubAgents->>Evaluator: Evaluate Transcript & Verbatim Quotes
     
-    SubAgents->>Vexa: Deploy Manager AI Bot to User Meet Link
+    SubAgents->>WebRTC: Deploy Manager AI Bot to User Meet Link
     Supervisor-->>API: Return Pipeline Result & Manager Debrief Link
     API-->>UI: Display Visualizer, Scorecard, Heatmap & Join Debrief Button
-    User->>Vexa: Join Manager Debrief Google Meet Call
+    User->>WebRTC: Join Manager Debrief Google Meet Call
 ```
 
 ---
@@ -81,7 +81,7 @@ sequenceDiagram
 - System pauses and awaits the scheduled interview time.
 
 ### Stage 5: Live Multimodal Audio Interview
-- At the scheduled time, `VexaClient.join_meeting()` deploys a headless Meet bot.
+- At the scheduled time, `WebRTCClient.join_meeting()` deploys a headless Meet bot.
 - Audio frames stream bi-directionally over WebSocket `@app.websocket("/ws/audio/{meeting_id}")`.
 - `InterviewerFSM` transitions through the 8-stage interview lifecycle, injecting prompt context per stage.
 
@@ -94,7 +94,7 @@ sequenceDiagram
 
 ### Stage 8: Manager AI Debriefing Session
 - `create_manager_debrief_session()` generates a dedicated **Manager Debrief Google Meet link**.
-- Deploys a Vexa bot with `voice_context="manager_debrief"`.
+- Deploys a WebRTC client with `voice_context="manager_debrief"`.
 - When the hiring manager joins the call, the AI Manager Agent verbally briefs them on Drive resumes processed, candidate screening scores, verbatim quotes, and final hiring recommendations (`ADVANCE` / `REJECT` / `HOLD`).
 
 ---
@@ -131,9 +131,9 @@ SMTP_USE_TLS=true
 CALENDAR_PROVIDER=google
 GOOGLE_TOKEN_PATH=token.json
 
-# Vexa Google Meet Bot Client
-VEXA_API_BASE=http://localhost:18056
-VEXA_API_KEY=your-vexa-api-key
+# WebRTC Client Client
+WEBRTC_API_BASE=http://localhost:18056
+WEBRTC_API_KEY=your-webrtc-api-key
 ```
 
 ---

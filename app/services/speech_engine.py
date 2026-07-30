@@ -116,6 +116,7 @@ class TTSService:
         api_key = (
             getattr(settings, "GOOGLE_TTS_API_KEY", "")
             or getattr(settings, "GOOGLE_CLOUD_API_KEY", "")
+            or getattr(settings, "GEMINI_API_KEY", "")
             or ""
         )
         if not api_key:

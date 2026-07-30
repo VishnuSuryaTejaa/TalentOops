@@ -169,10 +169,10 @@ class DatabasePort(Protocol):
     def match_embeddings(self, run_id: str, vector: list[float], kind: str, top_k: int) -> list[dict]: ...
 ```
 
-### 4.2 Bot Service Port (`app/services/vexa_client.py`)
+### 4.2 Bot Service Port (`app/services/webrtc_client.py`)
 
 ```python
-class VexaBotPort(Protocol):
+class WebRTCBotPort(Protocol):
     async def join_meeting(self, meet_url: str, bot_name: str, voice_context: str, interview_id: str) -> dict: ...
     async def leave_meeting(self, meeting_id: str) -> dict: ...
 ```

@@ -24,12 +24,32 @@ def _coverage(rubric: Rubric, candidate: dict[str, Any]) -> dict[str, Any]:
     return {"covered": covered, "rate": round(rate, 3)}
 
 
-def run_screening(run_id: str, goal: str, rubric: Rubric, top_k: int = 3) -> dict[str, Any]:
+def run_screening(run_id: str, goal: str, rubric: Rubric, candidates: list[dict[str, Any]] | None = None, top_k: int = 3) -> dict[str, Any]:
+    if candidates is None:
+        candidates = []
+        
     embedder = get_embedder()
     jd_vector = embedder.embed(goal)
     upsert_embedding(run_id, kind="jd", ref_id="jd", vector=jd_vector, metadata={"goal": goal})
 
+    for cand in candidates:
+        text_to_embed = f"Summary: {cand.get('summary', '')}\nSkills: {', '.join(cand.get('skills') or [])}"
+        cand_vector = embedder.embed(text_to_embed)
+        upsert_embedding(run_id, kind="candidate", ref_id=cand["id"], vector=cand_vector, metadata={"name": cand.get("name", "")})
+
     matches = match(run_id, jd_vector, kind="candidate", top_k=top_k)
+    
+    if not matches and candidates:
+        logger.warning("Supabase match returned empty. Using fallback in-memory matching.")
+        from app.embeddings.embedder import cosine
+        fallback_matches = []
+        for cand in candidates:
+            text_to_embed = f"Summary: {cand.get('summary', '')}\nSkills: {', '.join(cand.get('skills') or [])}"
+            c_vec = embedder.embed(text_to_embed)
+            score = cosine(jd_vector, c_vec)
+            fallback_matches.append({"ref_id": cand["id"], "score": score})
+        fallback_matches.sort(key=lambda x: x["score"], reverse=True)
+        matches = fallback_matches[:top_k]
 
     shortlist = []
     for m in matches:

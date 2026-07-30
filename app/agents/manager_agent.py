@@ -64,7 +64,7 @@ class ManagerAgent:
         return decision
 
     async def with_failure_handling(self, coro_fn, *args):
-        # covers loss of API connection / Vexa session drops (Task 6.6)
+        # covers loss of API connection / session drops (Task 6.6)
         try:
             return await coro_fn(*args)
         except Exception as e:
@@ -222,34 +222,35 @@ def determine_next_stage(current_stage: str | None, completed: list[str]) -> tup
     """Determine the next target WorkflowStage and target subagent node."""
     from app.graph.state import WorkflowStage
 
-    if not current_stage or current_stage == WorkflowStage.APPLICATION_RECEIVED:
-        return WorkflowStage.SCREENING, "sourcing"
+    if not current_stage or current_stage == WorkflowStage.INTAKE:
+        if "intake" not in completed:
+            return WorkflowStage.INTAKE, "intake"
+        return WorkflowStage.SCREENING, "screening"
 
     if current_stage == WorkflowStage.SCREENING:
-        if "sourcing" not in completed:
-            return WorkflowStage.SCREENING, "sourcing"
-        return WorkflowStage.SCHEDULING, "scheduling"
+        if "screening" not in completed:
+            return WorkflowStage.SCREENING, "screening"
+        return WorkflowStage.COORDINATION, "coordination"
 
-    if current_stage == WorkflowStage.SCHEDULING:
-        if "scheduling" not in completed:
-            return WorkflowStage.SCHEDULING, "scheduling"
-        # Halt execution. Await candidate joining the in-platform WebRTC interview room.
-        return WorkflowStage.WAITING_FOR_INTERVIEW, "FINISH"
+    if current_stage == WorkflowStage.COORDINATION:
+        if "coordination" not in completed:
+            return WorkflowStage.COORDINATION, "coordination"
+        return WorkflowStage.ASSESSMENT, "assessment"
 
-    if current_stage == WorkflowStage.WAITING_FOR_INTERVIEW:
-        return WorkflowStage.WAITING_FOR_INTERVIEW, "FINISH"
+    if current_stage == WorkflowStage.WAITING_FOR_ASSESSMENT:
+        return WorkflowStage.ASSESSMENT, "assessment"
 
-    if current_stage == WorkflowStage.INTERVIEWING:
-        if "interviewer" not in completed:
-            return WorkflowStage.INTERVIEWING, "interviewer"
-        return WorkflowStage.EVALUATION, "reporting"
+    if current_stage == WorkflowStage.ASSESSMENT:
+        if "assessment" not in completed:
+            return WorkflowStage.ASSESSMENT, "assessment"
+        return WorkflowStage.EVALUATION, "evaluation"
 
     if current_stage == WorkflowStage.EVALUATION:
-        if "reporting" not in completed:
-            return WorkflowStage.EVALUATION, "reporting"
-        return WorkflowStage.HR_DEBRIEF, "FINISH"
+        if "evaluation" not in completed:
+            return WorkflowStage.EVALUATION, "evaluation"
+        return WorkflowStage.DEBRIEF, "FINISH"
 
-    if current_stage == WorkflowStage.HR_DEBRIEF:
+    if current_stage == WorkflowStage.DEBRIEF:
         return WorkflowStage.COMPLETED, "FINISH"
 
     return WorkflowStage.COMPLETED, "FINISH"

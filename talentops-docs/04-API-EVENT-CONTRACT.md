@@ -1,6 +1,6 @@
 # Deliverable 4 — API/Event Contract (Manager ↔ sub-agent, JSON shape only)
 
-Transport-agnostic JSON messages, all persisted to the Supabase `events` table (replayable). Exact schemas are locked in `context/AGENT_CONTRACTS.json` (v1.1.1 — changed under D12/D13/D14/D17, see DECISIONS.md) — any change requires a `DECISIONS.md` entry.
+Transport-agnostic JSON messages, all persisted to the Supabase `events` table (replayable). 
 Consent/recording legality: a candidate-call `task.result` is valid only with `call_meta.consent_acknowledged = true`.
 
 ## 4.1 Envelope (every message)
@@ -32,7 +32,7 @@ Consent/recording legality: a candidate-call `task.result` is valid only with `c
                         "difficulty_level": "L1 | L2 | L3",
                         "interview_brief_ref": "uuid (per-candidate interview brief)",
                         "candidate_profile_ref": "uuid", "resume_ref": "uuid",
-                        "meeting_ref": "vexa session id",
+                        "meeting_ref": "webrtc session id",
                         "bias_guardrails": { "protected_attributes_blocklist": ["string"], "evidence_only": true,
                                              "prosody_scoring": false },
                         "sandbox": { "enabled": "bool", "duration_sec": 120, "graded": false },

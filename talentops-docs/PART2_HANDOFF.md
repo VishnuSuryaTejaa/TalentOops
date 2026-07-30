@@ -13,8 +13,8 @@ Part 2 is the **Voice Intelligence & Production** half of TalentOps: everything 
 
 | Area | File | What it does |
 |---|---|---|
-| Transport | `app/services/vexa_client.py` | Vexa bot join/leave/status for Google Meet |
-| Transport | `app/api/routes/webhooks.py` | `POST /webhooks/vexa` lifecycle events → creates/tears down audio bridges |
+| Transport | `app/services/webrtc_client.py` | WebRTC client join/leave/status for Google Meet |
+| Transport | `app/api/routes/webhooks.py` | `POST /webhooks/webrtc` lifecycle events → creates/tears down audio bridges |
 | Transport | `app/services/audio_bridge.py` | Bounded async frame queues (drop-oldest), `WS /ws/audio/{meeting_id}` |
 | Voice (Phase 1) | `app/services/gemini_live_session.py` | Gemini Live session (`gemini-3.1-flash-live-preview`, fallback `gemini-2.5-flash-native-audio`), barge-in, context injection, **no scoring surface** |
 | Voice (Phase 1) | `app/services/transcript_streamer.py` | Streams both-side transcript chunks to the immutable audit trail |
@@ -44,7 +44,7 @@ Part 2 is the **Voice Intelligence & Production** half of TalentOps: everything 
 npm --prefix frontend install && npm --prefix frontend run dev   # http://localhost:5173
 ```
 
-**Offline vs live:** `settings.OFFLINE_MODE` is `True` unless **both** `GEMINI_API_KEY` and `SUPABASE_URL` are set. Offline, every external service (Supabase, Groq, OpenRouter, Gemini Live, Vexa, Gmail) is a deterministic in-process stub — that's what makes the whole pipeline testable with zero keys. Env vars for live mode: `SUPABASE_URL`, `SUPABASE_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `VEXA_BASE_URL`.
+**Offline vs live:** `settings.OFFLINE_MODE` is `True` unless **both** `GEMINI_API_KEY` and `SUPABASE_URL` are set. Offline, every external service (Supabase, Groq, OpenRouter, Gemini Live, WebRTC, Gmail) is a deterministic in-process stub — that's what makes the whole pipeline testable with zero keys. Env vars for live mode: `SUPABASE_URL`, `SUPABASE_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `WEBRTC_BASE_URL`.
 
 ---
 
@@ -96,7 +96,7 @@ decision = await ManagerAgent(role_id).decide(scorecard)     # invite | reject |
 ### HTTP/WS surface Part 1 can rely on
 
 - `GET /health` — liveness
-- `POST /webhooks/vexa` — point the Vexa deployment's webhook here
+- `POST /webhooks/webrtc` — point the WebRTC deployment's webhook here
 - `WS /ws/audio/{meeting_id}` — audio frame bridge
 - `GET /fairness/heatmap?role_id=&k=` — dashboard telemetry (aggregate-only)
 
@@ -116,7 +116,7 @@ decision = await ManagerAgent(role_id).decide(scorecard)     # invite | reject |
 
 ## 4. Known gaps / deliberate stubs (for the joint backlog)
 
-- Real WebRTC bridging Vexa ⇄ Gemini Live (current `GeminiLiveSession` simulates turns offline; the online path is scaffolded, not wired).
+- Real WebRTC bridging WebRTC ⇄ Gemini Live (current `GeminiLiveSession` simulates turns offline; the online path is scaffolded, not wired).
 - Gmail push webhooks for `email_handler` (currently a direct async call + comms log).
 - LangGraph checkpointing to Supabase (Part 1's supervisor state).
 - Turn-latency measurement harness (S4 exit criterion: ≤800 ms P50 / ≤1.5 s P95) — needs the live stack.

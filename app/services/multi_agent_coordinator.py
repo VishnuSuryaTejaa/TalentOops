@@ -1,7 +1,7 @@
 """Multi-Agent Coordinator & State Machine Engine for TalentOops In-Platform Interview Rooms.
 
 Orchestrates Consent Agent, Interview Agent, and Evaluator Agent inside a
-self-hosted WebSocket room session. Google Meet and Vexa have been fully removed.
+self-hosted WebSocket room session. Google Meet integration has been removed.
 """
 from __future__ import annotations
 
@@ -58,6 +58,18 @@ class MultiAgentCoordinator:
     ) -> dict[str, Any]:
         """Execute full multi-agent room workflow with state machine checks."""
         logger.info("Starting Multi-Agent Room session for room: %s", self.room_id)
+
+        # Ensure candidate exists to prevent foreign key violations on scorecard insertion
+        try:
+            cand = await db.query("candidates", id=self.candidate_id)
+            if not cand:
+                await db.insert("candidates", {
+                    "id": self.candidate_id,
+                    "name": f"Unknown Candidate ({self.candidate_id[:8]})",
+                    "email": f"{self.candidate_id}@example.com"
+                })
+        except Exception as e:
+            logger.warning("Could not pre-ensure candidate %s: %s", self.candidate_id, e)
 
         self.state = RoomSessionState.ROOM_JOINED
 

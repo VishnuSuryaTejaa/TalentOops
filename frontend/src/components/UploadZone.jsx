@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import './UploadZone.css';
 
-export default function UploadZone({ onFileSelect }) {
+export default function UploadZone({ onFileSelect, onError }) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const inputRef = useRef(null);
@@ -34,7 +34,7 @@ export default function UploadZone({ onFileSelect }) {
 
   const handleFile = (file) => {
     if (file.type !== "application/pdf") {
-      alert("Please upload a PDF file.");
+      if (onError) onError("Please upload a valid PDF file.");
       return;
     }
     setSelectedFile(file);

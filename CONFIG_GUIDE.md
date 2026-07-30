@@ -53,12 +53,12 @@ origins = settings.cors_origins_list
 | `EMBED_PROVIDER` | `str` | `"mock"` | Vector embedding generator provider (`mock`, `sentence_transformers`, `openai`, `openrouter`, `groq`). | `mock` |
 | `EMBED_DIM` | `int` | `384` | Vector dimension size for candidate resume and job description embeddings. | `384` |
 
-### 4. Vexa Google Meet Bot Infrastructure
+### 4. WebRTC Client Infrastructure
 
 | Variable | Type | Default | Description & Usage | Example |
 |----------|------|---------|---------------------|---------|
-| `VEXA_API_BASE` | `str` | `"http://localhost:18056"` | Base HTTP URL for the Vexa headless bot container service. | `http://localhost:18056` |
-| `VEXA_API_KEY` | `str` | `""` | API key/token for authenticating with the Vexa bot service. | `vxa_bot_...` |
+| `WEBRTC_API_BASE` | `str` | `"http://localhost:18056"` | Base HTTP URL for the WebRTC headless bot container service. | `http://localhost:18056` |
+| `WEBRTC_API_KEY` | `str` | `""` | API key/token for authenticating with the WebRTC client service. | `vxa_bot_...` |
 
 ### 5. Integrations & Service Providers
 
@@ -143,7 +143,7 @@ Minimal `.env` file for local development:
 SUPABASE_URL="https://your-project.supabase.co"
 SUPABASE_KEY="your-anon-key"
 OPENROUTER_API_KEY="sk-or-v1-your-key"
-VEXA_API_BASE="http://localhost:18056"
+WEBRTC_API_BASE="http://localhost:18056"
 CORS_ORIGINS="http://localhost:5173"
 ```
 

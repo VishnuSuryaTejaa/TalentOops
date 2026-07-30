@@ -21,7 +21,7 @@ class ManagerVoiceMeeting:
         self._barged = False
 
     async def start(self, room_id: str) -> dict:
-        """Join an in-platform interview room (replaces Google Meet / Vexa join)."""
+        """Join an in-platform interview room (replaces Google Meet join)."""
         self.session = broker.issue_session("manager", "user")
         self._room_id = room_id
         if self._session_factory:

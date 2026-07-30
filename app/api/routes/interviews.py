@@ -1,4 +1,4 @@
-"""Interview Routes — self-hosted room lifecycle replaces Vexa/Google Meet."""
+"""Interview Routes — self-hosted room lifecycle replaces Google Meet."""
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import uuid
@@ -21,7 +21,7 @@ async def deploy_bot(req: DeployBotRequest):
     """
     Create a self-hosted interview room and insert the interview record.
 
-    Replaces the old Vexa bot deployment flow. The 'room' IS the interview;
+    Replaces the old bot deployment flow. The 'room' IS the interview;
     agents connect directly via WebSocket, no external bot proxy needed.
     """
     try:
@@ -78,7 +78,7 @@ class EndRoomRequest(BaseModel):
 @router.post("/end_room")
 async def end_room(req: EndRoomRequest):
     """
-    Close an interview room session (replaces stop_by_url which used Vexa).
+    Close an interview room session.
     Idempotent — returns success even if room is already closed.
     """
     try:

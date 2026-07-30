@@ -138,9 +138,17 @@ async def create_manager_debrief_session(
         "knowledge_context": knowledge_context,
     }
 
-    # 3. Persist session to Supabase hr_debrief_sessions
-    inserted = await db.insert("hr_debrief_sessions", payload)
-    payload["id"] = inserted.get("id") or f"debrief-{effective_id}"
+    # 3. Persist session to Supabase hr_debrief_sessions (Upsert style to prevent 23505 duplicate key error)
+    existing = await db.query("hr_debrief_sessions", interview_id=effective_id)
+    if existing:
+        inserted = await db.update("hr_debrief_sessions", {"interview_id": effective_id}, payload)
+    else:
+        inserted = await db.insert("hr_debrief_sessions", payload)
+        
+    if inserted:
+        payload["id"] = inserted.get("id") or f"debrief-{effective_id}"
+    else:
+        payload["id"] = f"debrief-{effective_id}"
 
     logger.info(
         "Manager Agent created HR Debrief room for interview %s (room: %s)",

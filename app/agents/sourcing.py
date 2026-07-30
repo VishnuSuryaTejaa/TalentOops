@@ -1,167 +1,53 @@
-"""Sourcing sub-agent: resume corpus -> parsed profiles -> database persistence -> embedded."""
+"""Sourcing sub-agent: Retrieves candidate profiles from the database."""
 from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 from typing import Any
 
-from app.embeddings.embedder import get_embedder
-from app.embeddings.store import upsert_embedding
-from app.services.parser import parse_resume_bytes, extract_email_from_text, ResumeParseError, ParsedResume
+from app.services.database import db
 
 logger = logging.getLogger("talentops.sourcing")
 
-
-def parse_pdf(path: str) -> str:
-    """Extract text from a PDF, DOCX, or text resume file."""
-    try:
-        if not path or not isinstance(path, str):
-            raise ResumeParseError("Invalid path provided")
-        with open(path, "rb") as f:
-            content = f.read()
-        parsed = parse_resume_bytes(content, file_name=path)
-        return parsed.raw_text
-    except ResumeParseError as e:
-        logger.error("Failed to parse resume file %s: %s", path, e)
-        raise
-    except Exception as e:
-        logger.error("Unexpected error parsing file %s: %s", path, e)
-        raise ResumeParseError(f"Error parsing resume content at {path}: {e}") from e
-
-
-def extract_profile(text: str, file_name: str | None = None) -> ParsedResume:
-    """Structured profile extraction from resume raw text."""
-    if not text or not isinstance(text, str) or not text.strip():
-        raise ValueError(f"Resume text is empty or invalid for file {file_name}")
-
-    fname = file_name or "resume.pdf"
-    if not fname.endswith((".pdf", ".docx", ".txt", ".md")):
-        fname = f"{fname}.pdf"
-
-    return parse_resume_bytes(text.encode("utf-8"), file_name=fname)
-
-
-def _load_corpus(corpus: list[dict] | None) -> list[dict]:
-    """Load and validate candidate corpus from real resume files."""
-    if not corpus:
-        import os
-        loaded_temp = []
-        if os.path.exists("temp_uploads"):
-            for fname in sorted(os.listdir("temp_uploads"), reverse=True):
-                fpath = os.path.join("temp_uploads", fname)
-                if os.path.isfile(fpath) and not fname.startswith("."):
-                    try:
-                        text = parse_pdf(fpath)
-                        email = extract_email_from_text(text)
-                        loaded_temp.append({"id": fname.rsplit(".", 1)[0], "text": text, "email": email, "pdf_path": fpath})
-                    except Exception as exc:
-                        logger.error("Failed to load temp upload resume %s: %s", fname, exc)
-        if loaded_temp:
-            return loaded_temp
-
-        logger.error("run_sourcing called with no candidate corpus. Supply resume files via corpus.")
-        return []
-
-    loaded = []
-    for item in corpus:
-        if "pdf_path" in item:
-            try:
-                text = parse_pdf(item["pdf_path"])
-                email = extract_email_from_text(text)
-                loaded.append({
-                    "id": item.get("id") or f"cand_{uuid.uuid4().hex[:10]}",
-                    "text": text,
-                    "email": email,
-                    "pdf_path": item["pdf_path"]
-                })
-            except Exception as exc:
-                logger.error("Failed to load resume for candidate %s: %s", item.get("id"), exc)
-        else:
-            loaded.append(item)
-    return loaded
-
-
 async def run_sourcing_async(run_id: str, goal: str, corpus: list[dict] | None = None) -> dict[str, Any]:
-    """Async candidate sourcing pipeline: parse -> database persistence (candidates & projects) -> embedding."""
-    embedder = get_embedder()
+    """Async candidate sourcing pipeline: retrieves from database."""
     profiles: list[dict[str, Any]] = []
 
-    from app.services.database import db
+    if not corpus:
+        logger.error("run_sourcing called with no candidate corpus. Supply candidate id via corpus.")
+        return {"candidates": [], "count": 0}
 
-    for entry in _load_corpus(corpus):
-        try:
-            cand_id = entry.get("id") or f"cand_{uuid.uuid4().hex[:10]}"
-            parsed = extract_profile(entry["text"], file_name=entry.get("pdf_path") or f"{cand_id}.pdf")
-
-            cand_name = parsed.candidate_name or f"Candidate {cand_id[:6]}"
-            cand_email = parsed.email or entry.get("email") or ""
-            cand_phone = parsed.phone or ""
-            cand_summary = parsed.summary or ""
-            cand_skills = parsed.skills or []
-            cand_projects = parsed.projects or []
-
-            # 1. Database persistence: Save candidate to candidates table
-            try:
-                await db.insert("candidates", {
-                    "id": cand_id,
-                    "name": cand_name,
-                    "email": cand_email if cand_email else None,
-                    "phone": cand_phone,
-                    "summary": cand_summary,
-                    "skills": cand_skills,
-                    "experience": [e.model_dump() for e in parsed.experience] if parsed.experience else [],
-                    "education": [e.model_dump() for e in parsed.education] if parsed.education else [],
-                    "raw_text": entry.get("text", ""),
-                    "resume_path": entry.get("pdf_path", ""),
-                })
-            except Exception as exc:
-                logger.warning("Supabase candidate insert notice for candidate %s: %s", cand_id, exc)
-
-            # 2. Database persistence: Save projects to projects table
-            for proj in cand_projects:
-                try:
-                    await db.insert("projects", {
-                        "candidate_id": cand_id,
-                        "title": proj.title,
-                        "description": proj.description,
-                        "technologies": proj.technologies,
-                        "url": proj.url,
-                    })
-                except Exception as exc:
-                    logger.warning("Supabase project insert notice for candidate %s: %s", cand_id, exc)
-
-            # 3. Embedding vector store
-            text_for_embed = f"{cand_name} {cand_summary} {' '.join(cand_skills)}"
-            vector = embedder.embed(text_for_embed)
-            upsert_embedding(
-                run_id,
-                kind="candidate",
-                ref_id=cand_id,
-                vector=vector,
-                metadata={
-                    "name": cand_name,
-                    "email": cand_email,
-                    "skills": cand_skills,
-                    "projects_count": len(cand_projects),
-                },
-            )
-
-            profiles.append({
-                "id": cand_id,
-                "name": cand_name,
-                "email": cand_email,
-                "phone": cand_phone,
-                "summary": cand_summary,
-                "skills": cand_skills,
-                "projects": [p.model_dump() for p in cand_projects],
-            })
-        except Exception as exc:
-            logger.error("Error processing resume candidate '%s' during sourcing: %s", entry.get("id"), exc)
+    for entry in corpus:
+        cand_id = entry.get("id")
+        if not cand_id:
             continue
 
-    return {"candidates": profiles, "count": len(profiles)}
+        try:
+            # Fetch from database
+            cand_records = await db.query("candidates", id=cand_id)
+            if not cand_records:
+                logger.error("Candidate %s not found in database", cand_id)
+                continue
 
+            cand_data = cand_records[0]
+            
+            # Fetch projects
+            proj_records = await db.query("projects", candidate_id=cand_id)
+            
+            profiles.append({
+                "id": cand_id,
+                "name": cand_data.get("name") or f"Candidate {cand_id[:6]}",
+                "email": cand_data.get("email") or "",
+                "phone": cand_data.get("phone") or "",
+                "summary": cand_data.get("summary") or "",
+                "skills": cand_data.get("skills") or [],
+                "projects": proj_records or [],
+            })
+        except Exception as exc:
+            logger.error("Error processing resume candidate '%s' during sourcing: %s", cand_id, exc)
+            raise RuntimeError(f"Database error during sourcing candidate {cand_id}: {exc}") from exc
+
+    return {"candidates": profiles, "count": len(profiles)}
 
 def run_sourcing(run_id: str, goal: str, corpus: list[dict] | None = None) -> dict[str, Any]:
     """Sync wrapper for run_sourcing_async."""

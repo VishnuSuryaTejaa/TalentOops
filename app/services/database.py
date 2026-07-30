@@ -125,7 +125,6 @@ class Database:
                 await self.insert("interviews", {
                     "id": interview_id,
                     "transcript": [dict(chunk)],
-                    "created_at": datetime.now(timezone.utc).isoformat(),
                 })
             except Exception as exc:
                 if logger:

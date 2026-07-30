@@ -18,7 +18,7 @@
    - Integrates with Google Calendar FreeBusy API, creates Google Meet rooms, dispatches invitation emails, and reports meeting metadata **ONLY** to the Manager Agent.
 
 4. **Interviewer Subagent (Candidate-Facing)**:
-   - Joins Google Meet calls with Human Candidates using a headless Vexa Chromium bot.
+   - Joins Google Meet calls with Human Candidates using a WebRTC client.
    - Conducts two-way audio interviews over WebSockets / Gemini Live streaming, executes the 8-stage Interview FSM, logs verbatim audio transcripts, and sends raw logs **ONLY** to the Manager Agent.
 
 5. **Evaluator Agent (Internal)**:
@@ -49,7 +49,7 @@ graph LR
     end
 
     subgraph Candidate Facing Layer
-        Interviewer[Interviewer Subagent / Vexa Bot]
+        Interviewer[Interviewer Subagent / WebRTC client]
         Candidate([Human Candidate])
     end
 
@@ -98,7 +98,7 @@ graph TD
         EmbedPort[Embedding Port] --> EmbedAdapter[OpenRouter / OpenAI / Supabase pgvector]
         CalendarPort[Calendar Booking Port] --> CalendarAdapter[Google Calendar API]
         EmailPort[Communication Port] --> EmailAdapter[SMTP / Gmail API Adapter]
-        AudioPort[Vexa Audio Bot Port] --> VexaAdapter[Vexa Meet Chromium Bot Service]
+        AudioPort[WebRTC Audio Bot Port] --> WebRTCAdapter[WebRTC Meet Chromium Bot Service]
         DatabasePort[Audit Storage Port] --> SupabaseAdapter[Supabase PostgreSQL Events & Scorecards]
     end
 
@@ -117,7 +117,7 @@ stateDiagram-v2
     SCREENING --> SCHEDULING: Frozen Rubric SHA-256 & Candidate Ranking Top-K
     SCHEDULING --> WAITING_FOR_INTERVIEW: Google Calendar Booking & Candidate Invite Sent
     WAITING_FOR_INTERVIEW --> INTERVIEWING: At scheduled time
-    INTERVIEWING --> EVALUATION: Vexa Bot Joins GMeet & Conducts FSM Interview
+    INTERVIEWING --> EVALUATION: WebRTC client Joins GMeet & Conducts FSM Interview
     EVALUATION --> HR_DEBRIEF: Extractive Scorecards (Evaluator Agent within Reporting Node)
     HR_DEBRIEF --> [*]: Manager AI Debriefs Human HR in GMeet Call
 ```
@@ -126,7 +126,7 @@ stateDiagram-v2
 2. **`SCREENING` (Combined with Sourcing)**: Parses PDFs, embeds candidate profiles into 384-dim unit vectors, freezes rubric content hash ($\text{SHA-256}$), and matches top candidates via Supabase `pgvector`.
 3. **`SCHEDULING`**: Finds open calendar slots via Google Calendar API, books Google Meet rooms, and sends candidate invitation emails.
 4. **`WAITING_FOR_INTERVIEW`**: Pauses workflow until the scheduled interview time.
-5. **`INTERVIEWING`**: Deploys headless Vexa bot to candidate Meet call, streaming PCM audio over WebSockets through the 8-stage Interviewer FSM.
+5. **`INTERVIEWING`**: Deploys headless WebRTC client to candidate Meet call, streaming PCM audio over WebSockets through the 8-stage Interviewer FSM.
 6. **`EVALUATION` (Bundled in Reporting Node)**: Evaluates transcript lines requiring exact verbatim quote evidence via the Evaluator Agent and computes demographic cohort fairness matrices ($k \ge 5$).
 7. **`HR_DEBRIEF`**: Manager Agent synthesizes candidate report, generates a dedicated Manager Debrief Google Meet room, and verbally briefs Human HR.
 

@@ -41,29 +41,36 @@ def _emit(run_id: str, name: str, result: dict) -> dict:
     return make_envelope(sender=name, recipient="manager", kind="result", body=result)
 
 
-async def sourcing_node(state: PipelineState) -> dict:
+async def intake_node(state: PipelineState) -> dict:
     from app.graph.state import WorkflowStage
     from app.agents.sourcing import run_sourcing_async
+    import logging
     run_id = state["run_id"]
-    log_event(run_id, source="sourcing", event_type="agent_started", payload={"goal": state["goal"]})
-    result = await run_sourcing_async(run_id, state["goal"], state.get("corpus"))
+    log_event(run_id, source="intake", event_type="agent_started", payload={"goal": state["goal"]})
+    
+    try:
+        result = await run_sourcing_async(run_id, state["goal"], state.get("corpus"))
+        rubric = generate_rubric(run_id, state.get("standard") or state["goal"])
+    except Exception as e:
+        logging.getLogger("talentops.nodes").error("Intake node failed: %s", e)
+        raise RuntimeError(f"Intake failed: {e}") from e
 
-    rubric = generate_rubric(run_id, state.get("standard") or state["goal"])
-    log_event(run_id, source="screening", event_type="rubric_frozen",
+    log_event(run_id, source="intake", event_type="rubric_frozen",
               payload={"content_hash": rubric.content_hash,
                        "competencies": [c.name for c in rubric.competencies]})
 
     candidates = result.get("candidates", [])
     if not candidates:
-        raise ValueError("No valid candidate resume profiles found in corpus")
+        raise RuntimeError("No valid candidate resume profiles found in corpus. Cannot proceed.")
 
     top = candidates[0]["id"]
+    # Provide a baseline shortlist since screening will re-evaluate them
     shortlist = [{"ref_id": c.get("id", "cand"), "similarity": 1.0, "coverage_rate": 1.0} for c in candidates]
 
-    env = _emit(run_id, "sourcing", {"count": result["count"]})
+    env = _emit(run_id, "intake", {"count": result["count"]})
     return {
-        "stage": WorkflowStage.SCHEDULING,
-        "completed": ["sourcing", "screening"],
+        "stage": WorkflowStage.SCREENING,
+        "completed": ["intake"],
         "candidates": candidates,
         "rubric": rubric.model_dump(),
         "shortlist": shortlist,
@@ -75,49 +82,51 @@ async def sourcing_node(state: PipelineState) -> dict:
 
 def screening_node(state: PipelineState) -> dict:
     from app.graph.state import WorkflowStage
+    from app.agents.screening import run_screening
+    from app.rubric.rubric import Rubric
+    import logging
+    
     run_id = state["run_id"]
     log_event(run_id, source="screening", event_type="agent_started", payload={})
 
-    rubric = generate_rubric(run_id, state.get("standard") or state["goal"])
-    log_event(run_id, source="screening", event_type="rubric_frozen",
-              payload={"content_hash": rubric.content_hash,
-                       "competencies": [c.name for c in rubric.competencies]})
-
     candidates = state.get("candidates", [])
-    top = state.get("top_candidate") or (candidates[0]["id"] if candidates else None)
-    if not top:
-        raise ValueError("No candidates available for screening")
+    if not candidates:
+        raise RuntimeError("No candidates available for screening")
 
-    shortlist = state.get("shortlist") or [{"ref_id": top, "similarity": 1.0, "coverage_rate": 1.0}]
-    result = {
-        "shortlist": shortlist,
-        "rubric_coverage_rate": 1.0,
-        "confidence": 1.0,
-        "needs_review": False,
-        "reason": "Resume shortlisting bypassed; candidates advanced directly.",
-    }
+    try:
+        rubric = Rubric(**state["rubric"])
+        result = run_screening(run_id, state["goal"], rubric, candidates=candidates)
+    except Exception as e:
+        logging.getLogger("talentops.nodes").error("Screening node failed: %s", e)
+        raise RuntimeError(f"Screening failed: {e}") from e
+
+    shortlist = result.get("shortlist", [])
+    if not shortlist:
+        raise RuntimeError("Screening produced no viable candidates.")
+
+    top = shortlist[0]["ref_id"]
 
     env = _emit(run_id, "screening", result)
     return {
-        "stage": WorkflowStage.SCHEDULING,
-        "completed": ["sourcing", "screening"],
-        "rubric": rubric.model_dump(),
+        "stage": WorkflowStage.COORDINATION,
+        "completed": ["screening"],
         "shortlist": shortlist,
         "top_candidate": top,
-        "needs_review": False,
+        "needs_review": result.get("needs_review", False),
         "messages": [env],
     }
 
 
-async def scheduling_node(state: PipelineState) -> dict:
+async def coordination_node(state: PipelineState) -> dict:
     from app.graph.state import WorkflowStage
     from app.services.database import db
+    import logging
     run_id = state["run_id"]
-    log_event(run_id, source="scheduling", event_type="agent_started", payload={})
+    log_event(run_id, source="coordination", event_type="agent_started", payload={})
     
     top = state.get("top_candidate")
     if not top:
-        raise ValueError("No top candidate selected for scheduling")
+        raise RuntimeError("No top candidate selected for coordination")
 
     candidate_email = None
     if state.get("candidates"):
@@ -131,66 +140,79 @@ async def scheduling_node(state: PipelineState) -> dict:
         if db_cands:
             candidate_email = db_cands[0].get("email") or db_cands[0].get("resume_email")
 
-    if not candidate_email or "@" not in candidate_email:
-        raise ValueError("Candidate email not found in database")
-                
-    result = await run_scheduling(run_id, top, candidate_email=candidate_email)
+    try:
+        if not candidate_email or "@" not in candidate_email:
+            raise ValueError("Candidate email not found in database")
+                    
+        result = await run_scheduling(run_id, top, candidate_email=candidate_email)
 
-    if result.get("status") == "booked" and top:
-        room_url = result.get("room_url")
-        invite = send_invite(
-            run_id=run_id, 
-            candidate=top, 
-            slot="Upcoming", 
-            room_url=room_url,
-            candidate_email=candidate_email
-        )
-        result["invite_email"] = invite
+        if result.get("status") == "booked" and top:
+            room_url = result.get("room_url")
+            invite = await send_invite(
+                run_id=run_id, 
+                candidate=top, 
+                slot="Upcoming", 
+                room_url=room_url,
+                candidate_email=candidate_email
+            )
+            result["invite_email"] = invite
 
-    env = _emit(run_id, "scheduling", result)
+    except Exception as e:
+        logging.getLogger("talentops.coordination").error("Coordination failed: %s", e)
+        raise RuntimeError(f"Scheduling failed: {e}") from e
+
+    env = _emit(run_id, "coordination", result)
     return {
-        "stage": WorkflowStage.WAITING_FOR_INTERVIEW,
-        "completed": ["scheduling"],
-        "results": {"scheduling": result},
+        "stage": WorkflowStage.WAITING_FOR_ASSESSMENT,
+        "completed": ["coordination"],
+        "results": {"coordination": result},
         "messages": [env],
     }
 
 
-def interviewer_node(state: PipelineState) -> dict:
+def assessment_node(state: PipelineState) -> dict:
     from app.graph.state import WorkflowStage
+    import logging
     run_id = state["run_id"]
-    log_event(run_id, source="interviewer", event_type="agent_started",
+    log_event(run_id, source="assessment", event_type="agent_started",
               payload={"candidate": state.get("top_candidate")})
 
     top = state.get("top_candidate")
     if not top or not state.get("rubric"):
-        result = {"status": "skipped", "reason": "no candidate or rubric"}
-        env = _emit(run_id, "interviewer", result)
-        return {"stage": WorkflowStage.EVALUATION, "completed": ["interviewer"], "results": {"interview": result}, "messages": [env]}
+        raise RuntimeError("No candidate or rubric provided for assessment")
 
-    rubric = Rubric(**state["rubric"])
-    result = run_interview(run_id, rubric, top)
-    env = _emit(run_id, "interviewer", {
-        "candidate": result["candidate"],
-        "overall_score": result["overall_score"],
-        "coverage_rate": result["coverage_rate"],
-        "needs_review": result["needs_review"],
+    try:
+        rubric = Rubric(**state["rubric"])
+        result = run_interview(run_id, rubric, top)
+    except Exception as e:
+        logging.getLogger("talentops.assessment").error("Assessment failed: %s", e)
+        raise RuntimeError(f"Assessment failed: {e}") from e
+
+    env = _emit(run_id, "assessment", {
+        "candidate": result.get("candidate", top),
+        "overall_score": result.get("overall_score", 0.0),
+        "coverage_rate": result.get("coverage_rate", 0.0),
+        "needs_review": result.get("needs_review", True),
+        "status": result.get("status", "completed"),
+        "reason": result.get("reason", "")
     })
-    return {"stage": WorkflowStage.EVALUATION, "completed": ["interviewer"], "results": {"interview": result}, "messages": [env]}
+    return {"stage": WorkflowStage.EVALUATION, "completed": ["assessment"], "results": {"assessment": result}, "messages": [env]}
 
 
-async def reporting_node(state: PipelineState) -> dict:
+async def evaluation_node(state: PipelineState) -> dict:
     from app.graph.state import WorkflowStage
+    import logging
     run_id = state["run_id"]
-    log_event(run_id, source="reporting", event_type="agent_started", payload={})
+    log_event(run_id, source="evaluation", event_type="agent_started", payload={})
 
     # ── E18 FIX: Trigger the evaluator agent ──
     from app.agents.evaluator_agent import EvaluatorAgent
-    import logging
-    top = state.get("top_candidate", "unknown")
+    top = state.get("top_candidate")
+    if not top or not state.get("rubric"):
+        raise RuntimeError("No candidate or rubric provided for evaluation")
     
     # In some flows, interview_id is set in the results. If not, use run_id or top.
-    interview_results = state.get("results", {}).get("interview", {})
+    interview_results = state.get("results", {}).get("assessment", {})
     interview_id = interview_results.get("interview_id") or run_id
     
     try:
@@ -201,39 +223,48 @@ async def reporting_node(state: PipelineState) -> dict:
             rubric=state.get("rubric")
         )
     except Exception as e:
-        logging.getLogger("talentops.nodes").error("EvaluatorAgent failed in reporting_node: %s", e)
+        logging.getLogger("talentops.nodes").error("EvaluatorAgent failed in evaluation_node: %s", e)
+        raise RuntimeError(f"EvaluatorAgent failed: {e}") from e
 
-    report = run_reporting(run_id, dict(state))
+    try:
+        report = run_reporting(run_id, dict(state))
+    except Exception as e:
+        logging.getLogger("talentops.nodes").error("run_reporting failed: %s", e)
+        raise RuntimeError(f"run_reporting failed: {e}") from e
 
     # Generate Manager Debrief room URL & script for Human HR
-    from app.agents.manager_debrief import build_manager_debrief_script, create_manager_debrief_session
-    debrief_session = await create_manager_debrief_session(
-        interview_id=interview_id, candidate_id=top, run_id=run_id, final_state=dict(state)
-    )
-    debrief_url = debrief_session.get("room_url") or f"http://localhost:5173/interview/debrief-{interview_id}"
-    debrief_script = build_manager_debrief_script(run_id, dict(state))
+    try:
+        from app.agents.manager_debrief import build_manager_debrief_script, create_manager_debrief_session
+        debrief_session = await create_manager_debrief_session(
+            interview_id=interview_id, candidate_id=top, run_id=run_id, final_state=dict(state)
+        )
+        debrief_url = debrief_session.get("room_url") or f"http://localhost:5173/interview/debrief-{interview_id}"
+        debrief_script = build_manager_debrief_script(run_id, dict(state))
 
-    manager_debrief = {
-        "room_url": debrief_url,
-        "meet_link": debrief_url,
-        "script": debrief_script,
-        "status": "ready",
-    }
-    report["manager_debrief"] = manager_debrief
+        manager_debrief = {
+            "room_url": debrief_url,
+            "meet_link": debrief_url,
+            "script": debrief_script,
+            "status": "ready",
+        }
+        report["manager_debrief"] = manager_debrief
+    except Exception as e:
+        logging.getLogger("talentops.nodes").error("Manager debrief generation failed: %s", e)
+        raise RuntimeError(f"Manager debrief generation failed: {e}") from e
 
-    env = _emit(run_id, "reporting", {
-        "decision": report["decision"],
-        "emails_sent": len(report["emails_sent"]),
-        "needs_human_review": report["needs_human_review"],
+    env = _emit(run_id, "evaluation", {
+        "decision": report.get("decision", "ERROR"),
+        "emails_sent": len(report.get("emails_sent", [])),
+        "needs_human_review": report.get("needs_human_review", True),
         "manager_debrief_link": debrief_url,
     })
-    return {"stage": WorkflowStage.HR_DEBRIEF, "completed": ["reporting"], "report": report, "messages": [env]}
+    return {"stage": WorkflowStage.DEBRIEF, "completed": ["evaluation"], "report": report, "messages": [env]}
 
 
 WORKER_NODES = {
-    "sourcing": sourcing_node,
+    "intake": intake_node,
     "screening": screening_node,
-    "scheduling": scheduling_node,
-    "interviewer": interviewer_node,
-    "reporting": reporting_node,
+    "coordination": coordination_node,
+    "assessment": assessment_node,
+    "evaluation": evaluation_node,
 }

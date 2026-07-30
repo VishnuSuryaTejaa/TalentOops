@@ -37,6 +37,47 @@ def _resolve_candidate_name(candidate: str) -> str:
     return clean_candidate_name(candidate) or "Candidate"
 
 
+from app.config import settings
+from app.services.llm_clients import openrouter_chat, groq_chat
+
+async def _invite_body_llm(candidate: str, slot: str, room_url: str | None = None) -> tuple[str, str]:
+    display_name = _resolve_candidate_name(candidate)
+    
+    context = ""
+    try:
+        cand_rows = db.query_sync("candidates", id=candidate)
+        if cand_rows and cand_rows[0].get("profile"):
+            context = str(cand_rows[0]["profile"])
+    except Exception:
+        pass
+
+    prompt = f"""You are an expert recruiter writing a professional interview invitation email.
+Candidate Name: {display_name}
+Proposed Time: {slot}
+Interview Room URL: {room_url or 'TBD'}
+Candidate Profile Context: {context}
+
+Write a professional, warm, and concise interview invitation email. 
+Ensure it includes the room URL and mentions the proposed time.
+Output ONLY the email body in plain text.
+"""
+    try:
+        messages = [{"role": "user", "content": prompt}]
+        if settings.LLM_PROVIDER == "groq" and (settings.GROQ_API_KEY or getattr(settings, "GROQ_API_KEY2", "")):
+            body = await groq_chat(messages)
+        elif settings.OPENROUTER_API_KEY:
+            body = await openrouter_chat(messages)
+        else:
+            return _invite_body(candidate, slot, room_url)
+            
+        subject = f"Interview Invitation - Next Steps for {display_name}"
+        if not body or len(body.strip()) < 10:
+            return _invite_body(candidate, slot, room_url)
+        return subject, body.strip()
+    except Exception as exc:
+        logger.warning("LLM generation failed in _invite_body_llm: %s", exc)
+        return _invite_body(candidate, slot, room_url)
+
 def _invite_body(
     candidate: str,
     slot: str,
@@ -140,7 +181,7 @@ def _send(
     return {"kind": kind, "to": msg.to, "message_id": msg.message_id, "subject": subject}
 
 
-def send_invite(
+async def send_invite(
     run_id: str,
     candidate: str,
     slot: str,
@@ -148,7 +189,7 @@ def send_invite(
     candidate_email: str | None = None,
 ) -> dict[str, Any]:
     """Send an interview invitation email with a TalentOops room URL."""
-    subject, body = _invite_body(candidate, slot, room_url)
+    subject, body = await _invite_body_llm(candidate, slot, room_url)
     return _send(run_id, "invite", candidate, subject, body, candidate_email)
 
 

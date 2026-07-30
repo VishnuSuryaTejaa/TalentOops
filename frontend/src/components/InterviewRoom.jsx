@@ -74,6 +74,29 @@ export default function InterviewRoom({ roomId }) {
   const finalTranscriptRef = useRef('');
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.onresult = (e) => {
+        let final = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) {
+            final += e.results[i][0].transcript;
+          }
+        }
+        if (final) {
+          finalTranscriptRef.current += final + ' ';
+          setTurnInput(finalTranscriptRef.current);
+        }
+      };
+      rec.onerror = (e) => console.warn('Speech recognition error:', e.error);
+      recognizerRef.current = rec;
+    }
+  }, []);
+
+  useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript]);
 
@@ -385,7 +408,7 @@ export default function InterviewRoom({ roomId }) {
                 type="button"
                 id="btn-join-room"
                 onClick={handleJoin}
-                className="w-full py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-sm font-bold hover:bg-[#f3b04c] shadow-[0_0_15px_rgba(232,163,61,0.3)] transition-all"
+                className="w-full py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-sm font-bold hover:bg-[#e6ff00] shadow-[0_0_15px_rgba(204,255,0,0.3)] transition-all"
               >
                 CONNECT SIGNAL CHANNEL
               </button>
@@ -433,7 +456,7 @@ export default function InterviewRoom({ roomId }) {
                   type="button"
                   id="btn-consent-agree"
                   onClick={() => handleConsent()}
-                  className="flex-1 py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-xs font-bold hover:bg-[#f3b04c] transition-all"
+                  className="flex-1 py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-xs font-bold hover:bg-[#e6ff00] transition-all"
                 >
                   I CONSENT &amp; JOIN
                 </button>
@@ -500,7 +523,7 @@ export default function InterviewRoom({ roomId }) {
                   id="btn-send-turn"
                   onClick={() => handleTurnSend()}
                   disabled={!turnInput.trim()}
-                  className="px-5 py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-xs font-bold hover:bg-[#f3b04c] disabled:opacity-40 transition-all"
+                  className="px-5 py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-xs font-bold hover:bg-[#e6ff00] disabled:opacity-40 transition-all"
                 >
                   TRANSMIT TURN
                 </button>

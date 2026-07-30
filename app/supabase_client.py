@@ -15,44 +15,61 @@ from typing import Any
 
 from app.config import get_settings
 
+import httpx
+
 logger = logging.getLogger("talentops.events")
 
-_client = None
 _pending: set[asyncio.Task] = set()
-
+_client = None
 
 def _get_client():
-    """Lazily construct the Supabase client (singleton)."""
     global _client
-    if _client is not None:
-        return _client
+    if _client is None:
+        from app.config import get_settings
+        settings = get_settings()
+        if settings.supabase_configured:
+            from supabase import create_client
+            _client = create_client(settings.supabase_url, settings.supabase_key)
+    return _client
+
+def _get_rest_url_and_headers():
     settings = get_settings()
     if not settings.supabase_configured:
-        return None
-    from supabase import create_client
-
-    _client = create_client(settings.supabase_url, settings.supabase_key)
-    return _client
+        return None, None
+    url = f"{settings.supabase_url.rstrip('/')}/rest/v1/events"
+    headers = {
+        "apikey": settings.supabase_key,
+        "Authorization": f"Bearer {settings.supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+    }
+    return url, headers
 
 
 def _insert_sync(row: dict[str, Any]) -> None:
-    client = _get_client()
-    if client is None:
+    # Synchronous fallback if needed (e.g., outside event loop)
+    url, headers = _get_rest_url_and_headers()
+    if not url:
         raise ValueError("Supabase is not configured. Enforcing REAL API execution.")
-
-    # Attempt 1: Full schema insert (run_id, ts, source, event_type, payload)
     try:
-        client.table("events").insert(row).execute()
+        with httpx.Client(timeout=10) as client:
+            r = client.post(url, json=row, headers=headers)
+            r.raise_for_status()
     except Exception as e:
         logger.error("[event:insert_failed] %s: %s", type(e).__name__, str(e))
         raise
 
 
 async def _write(row: dict[str, Any]) -> None:
+    url, headers = _get_rest_url_and_headers()
+    if not url:
+        return
     try:
-        await asyncio.to_thread(_insert_sync, row)
-    except Exception:
-        logger.exception("Failed to write event: %s", row.get("event_type"))
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(url, json=row, headers=headers)
+            r.raise_for_status()
+    except Exception as e:
+        logger.exception("Failed to write event: %s | %s", row.get("event_type"), str(e))
 
 
 def log_event(

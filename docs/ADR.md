@@ -21,8 +21,8 @@
 ## ADR 003: Hexagonal Architecture (Ports & Adapters) for Audio Bridge & Storage
 
 - **Status**: Accepted
-- **Context**: The platform integrates with external services (Vexa Chromium Bot, Gemini Live WebSocket Audio, Supabase pgvector, Google Drive API, Google Calendar API, SMTP Email). Direct coupling to external APIs creates fragile code and impedes automated testing.
-- **Decision**: Implement Hexagonal Architecture (Ports & Adapters). Domain logic depends strictly on abstract interfaces (`Embedder`, `LLMClient`, `CalendarClient`, `VexaClient`, `DatabasePort`). Concrete infrastructure implementations adapt external APIs and can be swapped or mocked in unit tests without changing core domain code.
+- **Context**: The platform integrates with external services (WebRTC client, Gemini Live WebSocket Audio, Supabase pgvector, Google Drive API, Google Calendar API, SMTP Email). Direct coupling to external APIs creates fragile code and impedes automated testing.
+- **Decision**: Implement Hexagonal Architecture (Ports & Adapters). Domain logic depends strictly on abstract interfaces (`Embedder`, `LLMClient`, `CalendarClient`, `WebRTCClient`, `DatabasePort`). Concrete infrastructure implementations adapt external APIs and can be swapped or mocked in unit tests without changing core domain code.
 - **Consequences**: Decouples business logic from vendors, improves testability (119 test cases passing), and prevents vendor lock-in.
 
 ---

@@ -36,7 +36,7 @@
 - [x] Must report booking metadata **ONLY** upward to the Manager Agent.
 
 ### 2.4 Interviewer Subagent (Candidate-Facing)
-- [x] Must deploy headless Vexa Chromium bot into candidate Google Meet calls.
+- [x] Must deploy WebRTC client into candidate Google Meet calls.
 - [x] Must execute the 8-stage Interviewer FSM over bi-directional PCM audio WebSockets.
 - [x] Must log verbatim audio transcript lines and send raw logs **ONLY** to the Manager Agent.
 

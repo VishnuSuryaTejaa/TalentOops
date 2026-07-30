@@ -8,22 +8,22 @@ from typing import Annotated, Any, TypedDict
 
 class WorkflowStage(str, Enum):
     """Canonical recruitment lifecycle states."""
-    APPLICATION_RECEIVED = "APPLICATION_RECEIVED"
+    INTAKE = "INTAKE"
     SCREENING = "SCREENING"
-    SCHEDULING = "SCHEDULING"
-    WAITING_FOR_INTERVIEW = "WAITING_FOR_INTERVIEW"
-    INTERVIEWING = "INTERVIEWING"
+    COORDINATION = "COORDINATION"
+    WAITING_FOR_ASSESSMENT = "WAITING_FOR_ASSESSMENT"
+    ASSESSMENT = "ASSESSMENT"
     EVALUATION = "EVALUATION"
-    HR_DEBRIEF = "HR_DEBRIEF"
+    DEBRIEF = "DEBRIEF"
     COMPLETED = "COMPLETED"
 
 
 SUB_AGENTS: list[str] = [
-    "sourcing",
+    "intake",
     "screening",
-    "scheduling",
-    "interviewer",
-    "reporting",
+    "coordination",
+    "assessment",
+    "evaluation",
 ]
 
 

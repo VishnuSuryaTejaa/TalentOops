@@ -501,20 +501,11 @@ class EvaluatorAgent:
                 "EvaluatorAgent: failed to store scorecard for %s: %s",
                 interview_id, store_err,
             )
+            raise RuntimeError(f"Failed to store scorecard: {store_err}") from store_err
 
         payload["scorecard_id"] = scorecard_id
 
-        # ── Trigger Manager Debrief session automatically ─────────────────────
-        try:
-            from app.agents.manager_debrief import create_manager_debrief_session
-            await create_manager_debrief_session(
-                interview_id=interview_id, candidate_id=candidate_id
-            )
-        except Exception as debrief_err:
-            logger.error(
-                "EvaluatorAgent: auto debrief trigger failed for %s: %s",
-                interview_id, debrief_err,
-            )
+
 
         hiring_rec = final_recommendation.get("hiring_recommendation", "Hold")
         suitability = final_recommendation.get("overall_suitability_score", 70.0)

@@ -4,13 +4,13 @@
 
 ```
 User ── React/Vite dashboard (incl. Fairness & Bias Lens) ──┐    Gmail ⇄ digests / email queries
-User ── Google Meet (reporting) ⇄ Vexa bot (self-hosted) [Manager voice · user context]
+User ── Google Meet (reporting) ⇄ WebRTC client (self-hosted) [Manager voice · user context]
                                                             │
         ┌───────────────────────────────────────────────────▼──────────────┐
         │ FastAPI monolith (Python 3.12+, uvicorn async workers)            │
         │  • LangGraph supervisor graph: Manager Agent + 5 sub-agents       │
-        │  • Webhook routers: Vexa · Gmail push · Calendar (in-proc)        │
-        │  • Gemini Live session manager: Vexa audio ⇄ WebRTC ⇄ Gemini Live  │
+        │  • Webhook routers: WebRTC · Gmail push · Calendar (in-proc)        │
+        │  • Gemini Live session manager: WebRTC audio ⇄ WebRTC ⇄ Gemini Live  │
         │    (`gemini-3.1-flash-live-preview` — conversational only; D19)   │
         │    Phase 1 (live): audio conversation + auto-transcript generation │
         │    Phase 2 (async): raw transcript → Groq/Nemotron for scoring     │
@@ -28,8 +28,8 @@ User ── Google Meet (reporting) ⇄ Vexa bot (self-hosted) [Manager voice ·
                                       └────────────────────────────────────┘
                                              ↑
                                 Gemini Live API (cloud, WebRTC)
-                            native audio ⇄ Vexa ⇄ Google Meet
-Candidate ── Google Meet (interview) ⇄ Vexa bot (self-hosted) [Interviewer voice · candidate context]
+                            native audio ⇄ WebRTC ⇄ Google Meet
+Candidate ── Google Meet (interview) ⇄ WebRTC client (self-hosted) [Interviewer voice · candidate context]
 * demographics: segregated, self-reported, aggregate-only — never agent-readable (§2.6)
 ```
 
@@ -39,14 +39,14 @@ Candidate ── Google Meet (interview) ⇄ Vexa bot (self-hosted) [Interviewer
 | Concern | Service | Used by |
 |---|---|---|
 | **Phase 1 — Live audio conversation (voice-in/voice-out + auto-transcript)** | **`gemini-3.1-flash-live-preview`** via WebRTC (fallback: `gemini-2.5-flash-native-audio`; D19) | Both voice contexts (Manager user meetings; Interviewer candidate calls); conversational interface only — no scoring output |
-| Meeting transport (join/leave lifecycle, WebRTC audio bridging to Gemini Live) | Vexa bot (self-hosted, open-source Google Meet bot) | Both voice contexts |
+| Meeting transport (join/leave lifecycle, WebRTC audio bridging to Gemini Live) | WebRTC client (self-hosted, open-source Google Meet bot) | Both voice contexts |
 | **Phase 2 — Scoring (async/offline; receives text transcript only):** rubric structuring, per-candidate brief, hidden-context distillation, Extractive Evaluation | **Groq Free Tier — Llama 3.3 70B** (~1000 tokens/s; D18/D19) | Manager Agent (briefs, rubrics, distillation); Analytics/Scorecard sub-agent (Extractive Evaluation scoring) |
 | **Phase 2 — Complex scorecard synthesis** (OpenRouter primary; Groq fallback) | **OpenRouter Free Tier — NVIDIA Nemotron** (fallback: Groq Llama 3.3 70B; D18) | Analytics/Scorecard sub-agent; async/offline only |
 | **Rejected (D17)** | GPT-4o Realtime, Moshi, Qwen2-Audio, ElevenLabs | — |
 | **Eliminated (D18)** | Silero VAD; Groq Whisper STT; Groq Llama (in-call); self-hosted Kokoro TTS; locally hosted Ollama/Llama 3.1 | — |
 
-- **Hybrid Loop (D19):** Candidate → Google Meet → Vexa → WebRTC → `gemini-3.1-flash-live-preview` (live audio conversation) → Gemini Live auto-generates raw text transcript → text transcript written to Supabase `interviews` table (immutable) → Analytics/Scorecard sub-agent picks up transcript (text only) → Groq/Nemotron performs ALL evaluation on text. Gemini Live produces NO scoring output. The text transcript is the structural blind wall between voice and scorer.
-- Target end-to-end turn latency: **≤800 ms P50 / ≤1.5 s P95** (D18/D19; accounts for full routing path: Candidate → Google Meet → Vexa → FastAPI → Gemini API → return; measured in S4).
+- **Hybrid Loop (D19):** Candidate → Google Meet → WebRTC → WebRTC → `gemini-3.1-flash-live-preview` (live audio conversation) → Gemini Live auto-generates raw text transcript → text transcript written to Supabase `interviews` table (immutable) → Analytics/Scorecard sub-agent picks up transcript (text only) → Groq/Nemotron performs ALL evaluation on text. Gemini Live produces NO scoring output. The text transcript is the structural blind wall between voice and scorer.
+- Target end-to-end turn latency: **≤800 ms P50 / ≤1.5 s P95** (D18/D19; accounts for full routing path: Candidate → Google Meet → WebRTC → FastAPI → Gemini API → return; measured in S4).
 - Transcripts sourced from the **Gemini Live API auto-generated transcript stream** → immutable audit trail in Supabase.
 - **Prosody policy (D16, structural enforcement restored — D19):** Gemini Live features native “Affective dialog” and processes paralinguistics. System-prompt instruction alone is insufficient and explicitly rejected (D19). Structural enforcement: the text transcript passed to the scorer contains NO audio — paralinguistics are absent by construction. Gemini Live’s “affective” processing drives only conversational flow (turn-taking, barge-in), never evaluation. All scoring is transcript-text-grounded via Extractive Evaluation.
 - **Cost structure (D18/D19):** Gemini Live API (voice) + Groq Llama 3.3 70B (heavy reasoning/scoring) + OpenRouter Nemotron (scorecard) are all free-tier hosted APIs. Zero self-hosted GPU requirement. Caveats: [ASSUME: Gemini Live free-tier concurrent session limits acceptable; fallback to `gemini-2.5-flash-native-audio` on quota or model unavailability]; [ASSUME: Groq RPM limits acceptable for async brief batch; retry/backoff implemented]; [ASSUME: OpenRouter Nemotron free availability stable; fallback to Groq Llama 3.3 70B].
@@ -57,7 +57,7 @@ Candidate ── Google Meet (interview) ⇄ Vexa bot (self-hosted) [Interviewer
 | User-facing calls / reporting meetings | Manager Agent only | User |
 | Candidate interview calls | Interviewer sub-agent only | Candidate |
 
-Never crossed, never reinterpreted. Enforcement point is now the **session broker** in the FastAPI monolith: voice-chain sessions (Vexa bot + free-chain pipeline) are issued keyed by `voice_context`; the Manager Agent runtime cannot obtain a `candidate` session and the Interviewer sub-agent runtime cannot obtain a `user` session. Message-level validation unchanged (§4.1). The Pre-Flight Sandbox runs inside the Interviewer sub-agent's candidate-context session (D12) — no new speaker identity is introduced.
+Never crossed, never reinterpreted. Enforcement point is now the **session broker** in the FastAPI monolith: voice-chain sessions (WebRTC client + free-chain pipeline) are issued keyed by `voice_context`; the Manager Agent runtime cannot obtain a `candidate` session and the Interviewer sub-agent runtime cannot obtain a `user` session. Message-level validation unchanged (§4.1). The Pre-Flight Sandbox runs inside the Interviewer sub-agent's candidate-context session (D12) — no new speaker identity is introduced.
 
 ## 2.4 Data flow (rev 2)
 1. User sets goal + difficulty level (dashboard/CLI) → Manager Agent creates LangGraph task graph.
@@ -93,5 +93,5 @@ Never crossed, never reinterpreted. Enforcement point is now the **session broke
 - **Output:** heatmap correlating candidate cohorts × question-difficulty distribution, with k-anonymity suppression (cells with n < k hidden, k [TBD]) and drift alerts when any cohort's mean difficulty deviates beyond threshold [TBD] — detective control auditing the Interviewer sub-agent for unintentional probing bias.
 
 ## 2.7 Flags
-- Consent/recording legality: both voice contexts recorded via the self-hosted Vexa bot — consent announced and obtained at call start per jurisdiction (Pre-Flight Sandbox included); self-hosting shifts recording-compliance responsibility fully in-house (no vendor DPA to lean on).
+- Consent/recording legality: both voice contexts recorded via the self-hosted WebRTC client — consent announced and obtained at call start per jurisdiction (Pre-Flight Sandbox included); self-hosting shifts recording-compliance responsibility fully in-house (no vendor DPA to lean on).
 - Demographic cohort data is special-category data (e.g., GDPR Art. 9): explicit opt-in, segregated storage, aggregate-only exposure.

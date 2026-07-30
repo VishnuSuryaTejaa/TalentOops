@@ -1,3 +1,5 @@
+import os
+from fastapi import HTTPException as fastapi_HTTPException
 import re
 from datetime import datetime, timezone
 from fastapi import FastAPI, Header
@@ -73,7 +75,7 @@ def create_app() -> FastAPI:
     @app.api_route("/rest/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def supabase_rest_fallback(path: str):
         """Fallback for Supabase PostgREST calls accidentally hitting FastAPI backend."""
-        raise HTTPException(status_code=404, detail="Supabase API requests should not hit the backend.")
+        raise fastapi_HTTPException(status_code=404, detail="Supabase API requests should not hit the backend.")
 
 
 
@@ -95,56 +97,76 @@ def create_app() -> FastAPI:
         request: Request,
         goal: Optional[str] = Form(None),
         standard: Optional[str] = Form(None),
-        resume: Optional[UploadFile] = File(None),
+        candidate_id: Optional[str] = Form(None),
     ) -> dict:
-        import os
         import uuid
         from app.graph.supervisor import run_pipeline
 
-        corpus = []
         req_goal = goal
         req_standard = standard
+        req_candidate_id = candidate_id
 
         content_type = request.headers.get("content-type", "")
         if "application/json" in content_type:
             try:
                 body = await request.json()
-                req_goal = body.get("goal")
-                req_standard = body.get("standard")
-                if body.get("corpus"):
-                    corpus.extend(body.get("corpus"))
+                req_goal = body.get("goal") or req_goal
+                req_standard = body.get("standard") or req_standard
+                # Extract candidate_id from body if provided directly or within a corpus object from legacy frontend
+                if body.get("candidate_id"):
+                    req_candidate_id = body.get("candidate_id")
+                elif body.get("corpus") and len(body.get("corpus")) > 0:
+                    req_candidate_id = body.get("corpus")[0].get("id")
             except Exception:
                 pass
 
-        if not req_goal:
-            req_goal = "Hire a senior backend engineer"
+        if not req_goal or not req_standard or not req_candidate_id:
+            logger.warning("Missing required details in backend, but allowing frontend to handle it or pipeline to fail naturally.")
+        logger.info("Starting pipeline run for goal: %s with candidate: %s", req_goal, req_candidate_id)
+        
+        # Pass the single candidate_id to the pipeline instead of a file-based corpus
+        corpus_data = [{"id": req_candidate_id}] if req_candidate_id else None
+        return await run_pipeline(goal=req_goal, standard=req_standard, corpus=corpus_data)
 
-        if resume:
-            from fastapi import HTTPException
-            from app.services.parser import parse_resume_bytes, ResumeParseError
+    from fastapi.responses import StreamingResponse
 
-            os.makedirs("temp_uploads", exist_ok=True)
-            filename = os.path.basename(resume.filename or "resume.pdf")
-            content = await resume.read()
-            
+    @app.post("/run/stream")
+    async def run_pipeline_stream_endpoint(
+        request: Request,
+        goal: Optional[str] = Form(None),
+        standard: Optional[str] = Form(None),
+        candidate_id: Optional[str] = Form(None),
+    ):
+        from app.graph.supervisor import run_pipeline_stream
+        
+        req_goal = goal
+        req_standard = standard
+        req_candidate_id = candidate_id
+
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
             try:
-                parse_resume_bytes(content, file_name=filename)
-            except ResumeParseError as e:
-                raise HTTPException(status_code=400, detail=str(e))
+                body = await request.json()
+                req_goal = body.get("goal") or req_goal
+                req_standard = body.get("standard") or req_standard
+                if body.get("candidate_id"):
+                    req_candidate_id = body.get("candidate_id")
+                elif body.get("corpus") and len(body.get("corpus")) > 0:
+                    req_candidate_id = body.get("corpus")[0].get("id")
+            except Exception:
+                pass
 
-            path = os.path.join("temp_uploads", f"{uuid.uuid4().hex}_{filename}")
-            with open(path, "wb") as f:
-                f.write(content)
-            corpus.append({"id": filename.rsplit('.', 1)[0], "pdf_path": path})
+        if not req_goal or not req_standard or not req_candidate_id:
+            logger.warning("Missing required details in backend streaming endpoint")
+        logger.info("Starting streaming pipeline run for goal: %s with candidate: %s", req_goal, req_candidate_id)
+        
+        corpus_data = [{"id": req_candidate_id}] if req_candidate_id else None
+        
+        return StreamingResponse(
+            run_pipeline_stream(goal=req_goal, standard=req_standard, corpus=corpus_data),
+            media_type="application/x-ndjson"
+        )
 
-        if not corpus and os.path.exists("temp_uploads"):
-            for fname in sorted(os.listdir("temp_uploads"), reverse=True):
-                fpath = os.path.join("temp_uploads", fname)
-                if os.path.isfile(fpath) and not fname.startswith("."):
-                    corpus.append({"id": fname.rsplit(".", 1)[0], "pdf_path": fpath})
-
-        logger.info("Starting pipeline run for goal: %s", req_goal)
-        return await run_pipeline(goal=req_goal, standard=req_standard, corpus=corpus if corpus else None)
 
     @app.post("/manager_debrief/deploy")
     async def manager_debrief_deploy_endpoint(req: DebriefDeployRequest) -> dict:
@@ -161,13 +183,11 @@ def create_app() -> FastAPI:
 
     @app.post("/upload_resume")
     async def upload_resume_endpoint(req: UploadResumeRequest) -> dict:
-        import os
         import uuid
         import base64
         from fastapi import HTTPException
         from app.services.parser import parse_resume_bytes, ResumeParseError
 
-        os.makedirs("temp_uploads", exist_ok=True)
         filename = os.path.basename(req.file_name or "resume.txt")
         
         content_str = req.content or ""
@@ -183,13 +203,9 @@ def create_app() -> FastAPI:
             raw_bytes = req.content.encode("utf-8")
 
         try:
-            parsed = parse_resume_bytes(raw_bytes, file_name=filename)
+            parsed = await parse_resume_bytes(raw_bytes, file_name=filename)
         except ResumeParseError as e:
             raise HTTPException(status_code=400, detail=str(e))
-
-        path = os.path.join("temp_uploads", f"{uuid.uuid4().hex}_{filename}")
-        with open(path, "wb") as f:
-            f.write(raw_bytes)
 
         from app.services.parser import extract_candidate_metadata, clean_candidate_name
         meta = extract_candidate_metadata(parsed.raw_text, file_name=filename)
@@ -212,7 +228,7 @@ def create_app() -> FastAPI:
                 "experience": [e.model_dump() for e in parsed.experience] if parsed.experience else [],
                 "education": [e.model_dump() for e in parsed.education] if parsed.education else [],
                 "raw_text": parsed.raw_text,
-                "resume_path": path,
+                "resume_path": "",
             })
 
             for proj in parsed.projects:
@@ -228,12 +244,13 @@ def create_app() -> FastAPI:
                     logger.warning("Supabase insert project notice: %s", proj_exc)
 
         except Exception as exc:
-            logger.warning("Supabase insert candidate notice: %s", exc)
+            logger.error("Supabase insert candidate failed: %s", exc)
+            raise HTTPException(status_code=500, detail="Failed to persist candidate to database")
 
         return {
             "status": "uploaded",
-            "path": path,
             "candidate_id": cand_id,
+            "path": cand_id, # return candidate_id as path for legacy frontend compatibility
             "candidate_name": cand_name,
             "email": cand_email,
             "projects_count": len(parsed.projects),
