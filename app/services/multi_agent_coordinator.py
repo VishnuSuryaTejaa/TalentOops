@@ -59,7 +59,20 @@ class MultiAgentCoordinator:
         """Execute full multi-agent room workflow with state machine checks."""
         logger.info("Starting Multi-Agent Room session for room: %s", self.room_id)
 
-        # Ensure candidate exists to prevent foreign key violations on scorecard insertion
+        # Ensure role, candidate and interview exist to prevent foreign key violations on scorecard insertion
+        try:
+            role_check = await db.query("roles", id=self.role_id)
+            if not role_check:
+                await db.insert("roles", {
+                    "id": self.role_id,
+                    "jd": "Default Role",
+                    "frozen": True,
+                    "difficulty_level": "L2",
+                    "rubric": {"difficulty_level": "L2", "competencies": []}
+                })
+        except Exception as e:
+            logger.warning("Could not pre-ensure role %s: %s", self.role_id, e)
+
         try:
             cand = await db.query("candidates", id=self.candidate_id)
             if not cand:
@@ -70,6 +83,18 @@ class MultiAgentCoordinator:
                 })
         except Exception as e:
             logger.warning("Could not pre-ensure candidate %s: %s", self.candidate_id, e)
+
+        try:
+            iv = await db.query("interviews", id=self.interview_id)
+            if not iv:
+                await db.insert("interviews", {
+                    "id": self.interview_id,
+                    "candidate_id": self.candidate_id,
+                    "role_id": self.role_id,
+                    "transcript": []
+                })
+        except Exception as e:
+            logger.warning("Could not pre-ensure interview %s: %s", self.interview_id, e)
 
         self.state = RoomSessionState.ROOM_JOINED
 
@@ -114,35 +139,40 @@ class MultiAgentCoordinator:
 
         # 3. State: CONSENT_GRANTED → INTERVIEW_ACTIVE
         self.state = RoomSessionState.INTERVIEW_ACTIVE
-        turns = candidate_turns or ["I am experienced with backend engineering and Python."]
+        turns = candidate_turns
+        if not turns:
+            raise ValueError("No candidate turns provided for the interview session.")
 
         # Look up job rubric from Supabase/DB
         rubrics = await db.query("rubrics", run_id=self.run_id)
-        rubric = rubrics[0] if rubrics else {
-            "standard": f"Position ({self.role_id})",
-            "competencies": [{"competency_id": "core_skills", "keywords": ["python", "backend"]}],
-        }
+        if not rubrics:
+            raise ValueError(f"No rubric found for run_id {self.run_id}")
+        rubric = rubrics[0]
 
-        # Setup Interviewer FSM with async session adapter
-        class AsyncSession:
-            async def inject_context(self, text: str) -> None:
-                pass
-            async def next_turn(self, text: str) -> str:
-                return f"Tell me more about {text}"
+        from app.services.gemini_live_session import GeminiLiveSession
+        from app.services.session_broker import VoiceSession
+
+        voice_session = VoiceSession("interviewer", "candidate", voice_context={})
+        live_session = GeminiLiveSession(
+            session=voice_session,
+            interview_id=self.interview_id,
+            brief={"candidate_name": self.candidate_id},
+        )
+        await live_session.start()
 
         fsm = InterviewerFSM(
             rubric=rubric,
             brief={"candidate_name": self.candidate_id},
-            session=AsyncSession(),
+            session=live_session,
         )
 
         fsm_result = await fsm.run_interview(turns, transcript_ref=self.interview_id)
+        await live_session.close()
 
         # 4. State: INTERVIEW_ACTIVE → EVALUATION_COMPLETE
-        transcript_formatted = [
-            {"speaker": "interviewer", "text": "Can you share your background?"},
-            {"speaker": "candidate",   "text": " ".join(turns)},
-        ]
+        transcript_formatted = await db.get_transcript_chunks(self.interview_id)
+        if not transcript_formatted:
+            raise RuntimeError(f"No transcript chunks found in DB for interview {self.interview_id}. The live session failed to record the conversation.")
 
         scorecard_result = await self.evaluator_agent.evaluate_transcript(
             interview_id=self.interview_id,

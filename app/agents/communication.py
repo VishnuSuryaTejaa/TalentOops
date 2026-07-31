@@ -32,13 +32,13 @@ def _resolve_candidate_name(candidate: str) -> str:
         cand_rows = db.query_sync("candidates", id=candidate)
         if cand_rows and cand_rows[0].get("name"):
             return cand_rows[0]["name"]
-    except Exception:
-        pass
+    except Exception as exc:
+        raise RuntimeError(f"Database error while resolving candidate name: {exc}")
     return clean_candidate_name(candidate) or "Candidate"
 
 
 from app.config import settings
-from app.services.llm_clients import openrouter_chat, groq_chat
+from app.services.llm_clients import groq_chat
 
 async def _invite_body_llm(candidate: str, slot: str, room_url: str | None = None) -> tuple[str, str]:
     display_name = _resolve_candidate_name(candidate)
@@ -48,8 +48,8 @@ async def _invite_body_llm(candidate: str, slot: str, room_url: str | None = Non
         cand_rows = db.query_sync("candidates", id=candidate)
         if cand_rows and cand_rows[0].get("profile"):
             context = str(cand_rows[0]["profile"])
-    except Exception:
-        pass
+    except Exception as exc:
+        raise RuntimeError(f"Database error while resolving candidate profile: {exc}")
 
     prompt = f"""You are an expert recruiter writing a professional interview invitation email.
 Candidate Name: {display_name}
@@ -63,21 +63,19 @@ Output ONLY the email body in plain text.
 """
     try:
         messages = [{"role": "user", "content": prompt}]
-        if settings.LLM_PROVIDER == "groq" and (settings.GROQ_API_KEY or getattr(settings, "GROQ_API_KEY2", "")):
+        if settings.LLM_PROVIDER == "groq" and settings.groq_api_keys:
             body = await groq_chat(messages)
-        elif settings.OPENROUTER_API_KEY:
-            body = await openrouter_chat(messages)
+        elif settings.groq_api_keys:
+            body = await groq_chat(messages)
         else:
             return _invite_body(candidate, slot, room_url)
             
         subject = f"Interview Invitation - Next Steps for {display_name}"
         if not body or len(body.strip()) < 10:
-            return _invite_body(candidate, slot, room_url)
+            raise RuntimeError("LLM returned empty or malformed invitation body.")
         return subject, body.strip()
     except Exception as exc:
-        logger.warning("LLM generation failed in _invite_body_llm: %s", exc)
-        return _invite_body(candidate, slot, room_url)
-
+        raise RuntimeError(f"LLM generation failed in _invite_body_llm: {exc}")
 def _invite_body(
     candidate: str,
     slot: str,
@@ -139,12 +137,8 @@ def _address_for(candidate: str, candidate_email: str | None = None) -> str:
             cand_rows = db.query_sync("candidates", id=candidate)
             if cand_rows and cand_rows[0].get("email") and "@" in cand_rows[0]["email"]:
                 return cand_rows[0]["email"]
-        except Exception:
-            pass
-
-        safe_name = candidate.lower().replace(" ", ".")
-        logger.warning("No stored email in database for candidate '%s', using fallback %s@example.com", candidate, safe_name)
-        return f"{safe_name}@example.com"
+        except Exception as exc:
+            raise RuntimeError(f"Database error while resolving candidate email: {exc}")
 
     raise ValueError(f"Invalid or missing candidate email for '{candidate}'. Cannot send email.")
 

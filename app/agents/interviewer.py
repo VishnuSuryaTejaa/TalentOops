@@ -169,7 +169,7 @@ async def generate_dynamic_question(
         )
 
     try:
-        from app.services.llm_clients import openrouter_chat, groq_chat
+        from app.services.llm_clients import groq_chat
         from app.config import settings
 
         messages = [
@@ -179,10 +179,10 @@ async def generate_dynamic_question(
 
         # BUG-02: cap at 100 tokens so the LLM cannot produce verbose multi-sentence questions
         question = ""
-        if settings.LLM_PROVIDER == "groq" and (settings.GROQ_API_KEY or getattr(settings, "GROQ_API_KEY2", "")):
+        if settings.LLM_PROVIDER == "groq" and settings.groq_api_keys:
             question = await groq_chat(messages, max_tokens=100, temperature=0.9)
-        elif settings.OPENROUTER_API_KEY:
-            question = await openrouter_chat(messages, max_tokens=100, temperature=0.9)
+        elif settings.groq_api_keys:
+            question = await groq_chat(messages, max_tokens=100, temperature=0.9)
         else:
             from app.llm.client import get_llm_client
             client = get_llm_client()
@@ -192,17 +192,7 @@ async def generate_dynamic_question(
         question = (question or "").strip().strip('"')
         if question and not is_semantic_duplicate(question, asked_questions_list) and "beginning of the interview" not in question.lower():
             return question
+        raise RuntimeError("LLM failed to generate a valid, non-duplicate question.")
     except Exception as exc:
-        logger.warning("LLM question generation fallback triggered: %s", exc)
-
-    # Dynamic probing fallback using history context if offline / LLM unavailable or invalid response returned
-    lowered = (last_candidate_answer or "").strip().lower()
-    target_comp = uncovered_competencies[0] if uncovered_competencies else "technical architecture"
-    if history:
-        prev_ans = history[-1].get("answer", "")
-        return f"Regarding '{prev_ans}' and '{last_candidate_answer}', could you walk me through your implementation details for {target_comp}?"
-    if "vorkos" in lowered or len(lowered.split()) < 5:
-        return f"Could you elaborate on your experience with {target_comp} as applied to '{last_candidate_answer}'?"
-    return f"Can you detail a complex technical challenge you faced regarding {target_comp} and how you resolved it?"
-
+        raise RuntimeError(f"LLM question generation failed: {exc}")
 

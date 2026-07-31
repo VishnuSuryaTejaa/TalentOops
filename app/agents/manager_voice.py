@@ -35,6 +35,33 @@ class ManagerVoiceMeeting:
             if re.search(pattern, low):
                 return REFUSAL
 
+        target_id = self._room_id
+        if not target_id:
+            try:
+                candidates = await db.query("candidates", role_id=self.role_id)
+                if candidates:
+                    target_id = candidates[0].get("id")
+            except Exception:
+                pass
+
+        if not target_id:
+            try:
+                interviews = await db.query("interviews", role_id=self.role_id)
+                if interviews:
+                    target_id = interviews[0].get("id")
+            except Exception:
+                pass
+
+        if target_id:
+            try:
+                from app.agents.manager_agent import ManagerAgent
+                agent = ManagerAgent(role_id=self.role_id)
+                res = await agent.answer_interview_question(target_id, question)
+                if res and isinstance(res, dict) and res.get("answer"):
+                    return res["answer"]
+            except Exception as exc:
+                logger.warning("ManagerVoiceMeeting LLM answer synthesis fallback: %s", exc)
+
         db_errors = []
         try:
             candidates = await db.query("candidates", role_id=self.role_id)

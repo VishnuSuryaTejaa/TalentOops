@@ -112,10 +112,10 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-supabase-service-role-key
 
 # AI LLM & Embedding Services
-LLM_PROVIDER=openrouter
+LLM_PROVIDER=groq
 LLM_MODEL=meta-llama/llama-3.3-70b-instruct
-OPENROUTER_API_KEY=sk-or-v1-your-openrouter-key
-EMBED_PROVIDER=openrouter
+GROQ_API_KEY4=sk-or-v1-your-groq-key
+EMBED_PROVIDER=groq
 EMBED_DIM=384
 
 # Candidate Email SMTP Gateway

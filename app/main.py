@@ -82,6 +82,7 @@ def create_app() -> FastAPI:
     class RunRequest(BaseModel):
         goal: str
         standard: Optional[str] = None
+        candidate_id: Optional[str] = None
         corpus: Optional[List[Dict[str, Any]]] = None
 
     class EmailQueryRequest(BaseModel):
@@ -93,77 +94,40 @@ def create_app() -> FastAPI:
         run_id: str
 
     @app.post("/run")
-    async def run_pipeline_endpoint(
-        request: Request,
-        goal: Optional[str] = Form(None),
-        standard: Optional[str] = Form(None),
-        candidate_id: Optional[str] = Form(None),
-    ) -> dict:
+    async def run_pipeline_endpoint(req: RunRequest) -> dict:
         import uuid
         from app.graph.supervisor import run_pipeline
 
-        req_goal = goal
-        req_standard = standard
-        req_candidate_id = candidate_id
+        req_candidate_id = req.candidate_id
+        if not req_candidate_id and req.corpus and len(req.corpus) > 0:
+            req_candidate_id = req.corpus[0].get("id")
 
-        content_type = request.headers.get("content-type", "")
-        if "application/json" in content_type:
-            try:
-                body = await request.json()
-                req_goal = body.get("goal") or req_goal
-                req_standard = body.get("standard") or req_standard
-                # Extract candidate_id from body if provided directly or within a corpus object from legacy frontend
-                if body.get("candidate_id"):
-                    req_candidate_id = body.get("candidate_id")
-                elif body.get("corpus") and len(body.get("corpus")) > 0:
-                    req_candidate_id = body.get("corpus")[0].get("id")
-            except Exception:
-                pass
-
-        if not req_goal or not req_standard or not req_candidate_id:
-            logger.warning("Missing required details in backend, but allowing frontend to handle it or pipeline to fail naturally.")
-        logger.info("Starting pipeline run for goal: %s with candidate: %s", req_goal, req_candidate_id)
+        if not req.goal or not req_candidate_id:
+            logger.warning("Missing required details in backend, but allowing pipeline to fail naturally.")
+        logger.info("Starting pipeline run for goal: %s with candidate: %s", req.goal, req_candidate_id)
         
         # Pass the single candidate_id to the pipeline instead of a file-based corpus
         corpus_data = [{"id": req_candidate_id}] if req_candidate_id else None
-        return await run_pipeline(goal=req_goal, standard=req_standard, corpus=corpus_data)
+        return await run_pipeline(goal=req.goal, standard=req.standard, corpus=corpus_data)
 
     from fastapi.responses import StreamingResponse
 
     @app.post("/run/stream")
-    async def run_pipeline_stream_endpoint(
-        request: Request,
-        goal: Optional[str] = Form(None),
-        standard: Optional[str] = Form(None),
-        candidate_id: Optional[str] = Form(None),
-    ):
+    async def run_pipeline_stream_endpoint(req: RunRequest):
         from app.graph.supervisor import run_pipeline_stream
         
-        req_goal = goal
-        req_standard = standard
-        req_candidate_id = candidate_id
+        req_candidate_id = req.candidate_id
+        if not req_candidate_id and req.corpus and len(req.corpus) > 0:
+            req_candidate_id = req.corpus[0].get("id")
 
-        content_type = request.headers.get("content-type", "")
-        if "application/json" in content_type:
-            try:
-                body = await request.json()
-                req_goal = body.get("goal") or req_goal
-                req_standard = body.get("standard") or req_standard
-                if body.get("candidate_id"):
-                    req_candidate_id = body.get("candidate_id")
-                elif body.get("corpus") and len(body.get("corpus")) > 0:
-                    req_candidate_id = body.get("corpus")[0].get("id")
-            except Exception:
-                pass
-
-        if not req_goal or not req_standard or not req_candidate_id:
+        if not req.goal or not req_candidate_id:
             logger.warning("Missing required details in backend streaming endpoint")
-        logger.info("Starting streaming pipeline run for goal: %s with candidate: %s", req_goal, req_candidate_id)
+        logger.info("Starting streaming pipeline run for goal: %s with candidate: %s", req.goal, req_candidate_id)
         
         corpus_data = [{"id": req_candidate_id}] if req_candidate_id else None
         
         return StreamingResponse(
-            run_pipeline_stream(goal=req_goal, standard=req_standard, corpus=corpus_data),
+            run_pipeline_stream(goal=req.goal, standard=req.standard, corpus=corpus_data),
             media_type="application/x-ndjson"
         )
 
@@ -278,52 +242,36 @@ def create_app() -> FastAPI:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    class StartRoomSessionRequest(BaseModel):
-        candidate_id: str
-        role_id: str
-        room_id: str
-        consent_response: Optional[str] = "Yes, I consent to the recording."
-        candidate_turns: Optional[List[str]] = None
 
-    @app.post("/start_meet_session")
-    async def start_meet_session_endpoint(req: StartRoomSessionRequest) -> dict:
-        from app.services.multi_agent_coordinator import MultiAgentCoordinator
-        from fastapi import HTTPException
-        try:
-            coord = MultiAgentCoordinator(
-                candidate_id=req.candidate_id,
-                role_id=req.role_id,
-                room_id=req.room_id,
-            )
-            return await coord.run_session(
-                consent_response_text=req.consent_response or "Yes, I consent to the recording.",
-                candidate_turns=req.candidate_turns,
-            )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+    @app.post("/api/interviews/{interview_id}/complete")
+    async def complete_interview(interview_id: str):
+        from app.graph.supervisor import SUPERVISOR
+        from app.graph.state import WorkflowStage, PipelineState
+        from fastapi import BackgroundTasks
+        import asyncio
 
-    class OralTurnRequest(BaseModel):
-        session_id: str
-        candidate_id: str
-        role_id: str
-        candidate_text: Optional[str] = None
-        candidate_audio_b64: Optional[str] = None
+        async def resume_pipeline():
+            logger.info("Resuming pipeline for interview %s from ASSESSMENT stage", interview_id)
+            initial: PipelineState = {
+                "run_id": interview_id,
+                "goal": "Interview completed, proceeding to assessment",
+                "standard": "",
+                "stage": WorkflowStage.ASSESSMENT,
+                "next": "",
+                "completed": [],
+                "messages": [],
+            }
+            try:
+                await SUPERVISOR.ainvoke(initial)
+                logger.info("Pipeline completed successfully for interview %s", interview_id)
+            except Exception as e:
+                logger.error("Error resuming pipeline for %s: %s", interview_id, e)
 
-    @app.post("/oral_interview/turn")
-    async def oral_interview_turn_endpoint(req: OralTurnRequest) -> dict:
-        from app.agents.oral_interview_agent import OralInterviewAgent
-        from fastapi import HTTPException
-        try:
-            agent = OralInterviewAgent()
-            return await agent.process_turn(
-                session_id=req.session_id,
-                candidate_id=req.candidate_id,
-                role_id=req.role_id,
-                candidate_text=req.candidate_text,
-                candidate_audio_b64=req.candidate_audio_b64,
-            )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        # Run pipeline in background since evaluation might take time
+        asyncio.create_task(resume_pipeline())
+        
+        return {"status": "success", "message": "Interview marked as completed, evaluation started."}
+
 
     @app.get("/api/interviews/{interview_id}/evaluation")
     async def get_interview_evaluation(
@@ -394,6 +342,47 @@ def create_app() -> FastAPI:
                             live_turns.append({"speaker": "candidate", "text": c_t})
 
                 from app.agents.evaluator_agent import EvaluatorAgent
+
+                # Pre-ensure candidate exists for foreign key constraints
+                try:
+                    cand_check = await db.query("candidates", id=target_cand_id)
+                    if not cand_check:
+                        await db.insert("candidates", {
+                            "id": target_cand_id,
+                            "name": f"Unknown Candidate ({target_cand_id[:8]})",
+                            "email": f"{target_cand_id}@example.com"
+                        })
+                except Exception as e:
+                    logger.warning("Could not pre-ensure candidate in evaluation fallback: %s", e)
+                    
+                # Pre-ensure role exists for foreign key constraints
+                try:
+                    role_id_val = rubric.get("role_id", "r-default") if isinstance(rubric, dict) else "r-default"
+                    role_check = await db.query("roles", id=role_id_val)
+                    if not role_check:
+                        await db.insert("roles", {
+                            "id": role_id_val,
+                            "jd": "Default Role",
+                            "frozen": True,
+                            "difficulty_level": "L2",
+                            "rubric": {"difficulty_level": "L2", "competencies": []}
+                        })
+                except Exception as e:
+                    logger.warning("Could not pre-ensure role in evaluation fallback: %s", e)
+
+                # Pre-ensure interview exists for foreign key constraints
+                try:
+                    iv_check = await db.query("interviews", id=target_interview_id)
+                    if not iv_check:
+                        await db.insert("interviews", {
+                            "id": target_interview_id,
+                            "candidate_id": target_cand_id,
+                            "role_id": rubric.get("role_id", "r-default") if isinstance(rubric, dict) else "r-default",
+                            "transcript": []
+                        })
+                except Exception as e:
+                    logger.warning("Could not pre-ensure interview in evaluation fallback: %s", e)
+
                 evaluator = EvaluatorAgent(run_id="run-ondemand-eval")
                 eval_payload = await evaluator.evaluate_transcript(
                     interview_id=target_interview_id,
@@ -541,7 +530,7 @@ def create_app() -> FastAPI:
         from app.rooms.signaling import room_ws_handler
         from fastapi import WebSocket
 
-        @app.websocket("/ws/room/{room_id}")
+        @app.websocket("/api/ws/room/{room_id}")
         async def room_ws(websocket: WebSocket, room_id: str) -> None:
             await room_ws_handler(websocket, room_id)
     except ImportError:
@@ -552,11 +541,11 @@ def create_app() -> FastAPI:
         from app.services.audio_bridge import ws_endpoint
         from fastapi import WebSocket, status
 
-        @app.websocket("/ws/audio/{meeting_id}")
+        @app.websocket("/api/ws/audio/{meeting_id}")
         async def audio_ws(websocket: WebSocket, meeting_id: str) -> None:
             await ws_endpoint(websocket, meeting_id)
 
-        @app.websocket("/ws/audio")
+        @app.websocket("/api/ws/audio")
         async def audio_ws_fallback(websocket: WebSocket) -> None:
             meeting_id = websocket.query_params.get("meeting_id") or websocket.query_params.get("interview_id")
             if not meeting_id:

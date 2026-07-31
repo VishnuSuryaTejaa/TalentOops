@@ -15,6 +15,7 @@ class RoomStatus(str, Enum):
     ACTIVE              = "ACTIVE"
     COMPLETED           = "COMPLETED"
     EVALUATION_COMPLETE = "EVALUATION_COMPLETE"
+    EVALUATION_FAILED   = "EVALUATION_FAILED"
 
 
 class InterviewRoom(BaseModel):

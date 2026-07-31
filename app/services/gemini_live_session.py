@@ -44,39 +44,16 @@ class GeminiLiveSession:
     async def start(self) -> None:
         self.active_model = FALLBACK_MODEL if self._force_fallback else PRIMARY_MODEL
         self.open = True
-        # Initialize Gemini client for live sessions (non-script mode)
+        # Initialize session state for live sessions
         if self._script is None:
-            try:
-                import google.generativeai as genai
-                from app.config import get_settings
-                settings = get_settings()
-                api_key = settings.GEMINI_API_KEY
-                if not api_key:
-                    raise RuntimeError(
-                        "GEMINI_API_KEY is not set. Cannot start a live Gemini interview session. "
-                        "Supply a script= list to use script mode for tests/demos."
-                    )
-                genai.configure(api_key=api_key)
-                self._genai_client = genai.GenerativeModel(self.active_model)
-                logger.info(
-                    "[GeminiLiveSession] Started live session %s using model %s",
-                    self.interview_id, self.active_model
-                )
-            except ImportError:
-                raise RuntimeError(
-                    "google-generativeai package is required for live Gemini sessions. "
-                    "Install it with: pip install google-generativeai"
-                )
+            logger.info(
+                "[GeminiLiveSession] Started live session %s using model %s",
+                self.interview_id, self.active_model
+            )
 
     def simulate_quota_exhaustion(self) -> None:
         # graceful mid-call fallback; the already-streamed transcript is preserved
         self.active_model = FALLBACK_MODEL
-        if self._genai_client is not None:
-            try:
-                import google.generativeai as genai
-                self._genai_client = genai.GenerativeModel(FALLBACK_MODEL)
-            except Exception:
-                pass
 
     async def inject_context(self, text: str) -> None:
         self._context.append(text)
@@ -99,27 +76,28 @@ class GeminiLiveSession:
             else:
                 reply = "[Script exhausted — no more scripted turns]"
         else:
-            # LIVE MODE — real Gemini API call
-            if self._genai_client is None:
-                raise RuntimeError(
-                    "Gemini client not initialized. Call await session.start() before next_turn()."
-                )
+            # LIVE MODE — real Groq API call
             try:
+                from app.services.llm_clients import groq_chat
                 context_cues = "\n".join(self._context[-3:]) if self._context else ""
                 brief_str = ", ".join(
                     f"{k}: {v}" for k, v in self.brief.items()
                     if k in ("role", "competencies", "candidate_name")
                 )
-                prompt = (
+                system_prompt = (
                     f"You are a professional technical interviewer.\n"
                     f"Interview context: {brief_str}\n"
                     f"Current focus: {context_cues}\n\n"
-                    f"Candidate just said: \"{candidate_text}\"\n\n"
                     f"Respond with a single concise follow-up question or professional acknowledgement "
-                    f"that probes further. Do not score or evaluate — just conduct the interview naturally."
+                    f"that probes further. Do not score or evaluate — just conduct the interview naturally.\n"
+                    f"IMPORTANT: Output your response in plain text only without any Markdown formatting (no asterisks, bold, or lists), as this text will be read aloud by a Text-To-Speech engine."
                 )
-                response = self._genai_client.generate_content(prompt)
-                reply = (response.text or "").strip()
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": candidate_text}
+                ]
+                reply = await groq_chat(messages, max_tokens=150)
+                reply = reply.strip()
                 if not reply:
                     reply = "Could you elaborate further on that point?"
                 logger.info(
@@ -128,10 +106,10 @@ class GeminiLiveSession:
                 )
             except Exception as e:
                 logger.error(
-                    "[GeminiLiveSession] Gemini API error on turn %d: %s", self._turn, e
+                    "[GeminiLiveSession] Groq API error on turn %d: %s", self._turn, e
                 )
                 raise RuntimeError(
-                    f"Gemini Live API call failed on turn {self._turn}: {e}"
+                    f"Groq Live API call failed on turn {self._turn}: {e}"
                 ) from e
 
         await self.streamer.stream("candidate", candidate_text)
@@ -148,6 +126,5 @@ class GeminiLiveSession:
 
     async def close(self) -> None:
         self.open = False
-        self._genai_client = None
         logger.info("[GeminiLiveSession] Session %s closed at turn %d", self.interview_id, self._turn)
 

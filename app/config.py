@@ -29,7 +29,16 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     GROQ_API_KEY2: str = ""
-    OPENROUTER_API_KEY: str = ""
+    GROQ_API_KEY3: str = ""
+    GROQ_API_KEY4: str = ""
+
+    @property
+    def groq_api_keys(self) -> list[str]:
+        return [
+            key
+            for key in (self.GROQ_API_KEY, self.GROQ_API_KEY2, self.GROQ_API_KEY3, self.GROQ_API_KEY4)
+            if key
+        ]
 
     # Self-hosted Interview Room
     ROOM_BASE_URL: str = "http://localhost:5173"
@@ -63,8 +72,8 @@ class Settings(BaseSettings):
 
     # Embedding & LLM Provider Configuration
     EMBED_DIM: int = 384
-    LLM_PROVIDER: str = "openrouter"
-    EMBED_PROVIDER: str = "remote"
+    LLM_PROVIDER: str = "groq"
+    EMBED_PROVIDER: str = "groq"
 
     @property
     def supabase_configured(self) -> bool:

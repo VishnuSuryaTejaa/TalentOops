@@ -1,5 +1,24 @@
 -- TalentOps Unified Pipeline Schema (Part 1 + Part 2)
 
+-- Clean up existing tables to ensure a fresh start
+drop function if exists public.match_embeddings cascade;
+drop function if exists public.append_transcript cascade;
+
+drop table if exists public.hr_debrief_sessions cascade;
+drop table if exists public.interview_qa_logs cascade;
+drop table if exists public.comms cascade;
+drop table if exists public.calibration cascade;
+drop table if exists public.demographics cascade;
+drop table if exists public.scorecards cascade;
+drop table if exists public.interviews cascade;
+drop table if exists public.projects cascade;
+drop table if exists public.candidates cascade;
+drop table if exists public.roles cascade;
+drop table if exists public.embeddings cascade;
+drop table if exists public.rubrics cascade;
+drop table if exists public.events cascade;
+
+
 create extension if not exists "pgcrypto";
 create extension if not exists vector;
 
@@ -113,6 +132,20 @@ create table if not exists public.interviews (
     created_at    timestamptz default now()
 );
 
+-- Safely append to transcript JSONB array via RPC to avoid race conditions
+create or replace function public.append_transcript(
+    p_interview_id text,
+    p_chunk jsonb
+)
+returns void
+language sql
+as $$
+  insert into public.interviews (id, transcript)
+  values (p_interview_id, jsonb_build_array(p_chunk))
+  on conflict (id)
+  do update set transcript = coalesce(public.interviews.transcript, '[]'::jsonb) || EXCLUDED.transcript->0;
+$$;
+
 create table if not exists public.scorecards (
     id                         uuid primary key default gen_random_uuid(),
     interview_id               text,
@@ -181,3 +214,20 @@ create table if not exists public.hr_debrief_sessions (
 
 create index if not exists hr_debrief_interview_idx on public.hr_debrief_sessions (interview_id);
 create index if not exists hr_debrief_debrief_idx on public.hr_debrief_sessions (debrief_id);
+
+-- ============================================================================
+-- Disable Row Level Security (RLS) to allow anon access (for backend and frontend)
+-- ============================================================================
+alter table public.events disable row level security;
+alter table public.rubrics disable row level security;
+alter table public.embeddings disable row level security;
+alter table public.roles disable row level security;
+alter table public.candidates disable row level security;
+alter table public.projects disable row level security;
+alter table public.interviews disable row level security;
+alter table public.scorecards disable row level security;
+alter table public.demographics disable row level security;
+alter table public.calibration disable row level security;
+alter table public.comms disable row level security;
+alter table public.interview_qa_logs disable row level security;
+alter table public.hr_debrief_sessions disable row level security;

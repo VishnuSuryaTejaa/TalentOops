@@ -13,7 +13,7 @@ User ── Google Meet (reporting) ⇄ WebRTC client (self-hosted) [Manager voi
         │  • Gemini Live session manager: WebRTC audio ⇄ WebRTC ⇄ Gemini Live  │
         │    (`gemini-3.1-flash-live-preview` — conversational only; D19)   │
         │    Phase 1 (live): audio conversation + auto-transcript generation │
-        │    Phase 2 (async): raw transcript → Groq/Nemotron for scoring     │
+        │    Phase 2 (async): raw transcript → Groq/Llama 3.3 70B for scoring     │
         │  • asyncio.TaskGroup / BackgroundTasks (no Celery, Redis, Node)   │
         │  • Session broker: issues voice sessions keyed by voice_context   │
         └───────┬────────────────────────────────┬─────────────────────────┘
@@ -21,7 +21,7 @@ User ── Google Meet (reporting) ⇄ WebRTC client (self-hosted) [Manager voi
    ┌────────────▼──────────┐          ┌──────────▼─────────────────────────┐
    │ Supabase + pgvector   │          │ Groq (Llama 3.3 70B) — briefs,      │
    │ state · events ·      │          │ rubrics, hidden-context distillation  │
-   │ immutable audit ·     │          │ OpenRouter (NVIDIA Nemotron) —         │
+   │ immutable audit ·     │          │ Groq (NVIDIA Llama 3.3 70B) —         │
    │ demographics* (§2.6)  │          │ Extractive Evaluation scorecard       │
    └───────────────────────┘          │ (async/offline only — never in the    │
                                       │  live voice path)                      │
@@ -41,15 +41,15 @@ Candidate ── Google Meet (interview) ⇄ WebRTC client (self-hosted) [Interv
 | **Phase 1 — Live audio conversation (voice-in/voice-out + auto-transcript)** | **`gemini-3.1-flash-live-preview`** via WebRTC (fallback: `gemini-2.5-flash-native-audio`; D19) | Both voice contexts (Manager user meetings; Interviewer candidate calls); conversational interface only — no scoring output |
 | Meeting transport (join/leave lifecycle, WebRTC audio bridging to Gemini Live) | WebRTC client (self-hosted, open-source Google Meet bot) | Both voice contexts |
 | **Phase 2 — Scoring (async/offline; receives text transcript only):** rubric structuring, per-candidate brief, hidden-context distillation, Extractive Evaluation | **Groq Free Tier — Llama 3.3 70B** (~1000 tokens/s; D18/D19) | Manager Agent (briefs, rubrics, distillation); Analytics/Scorecard sub-agent (Extractive Evaluation scoring) |
-| **Phase 2 — Complex scorecard synthesis** (OpenRouter primary; Groq fallback) | **OpenRouter Free Tier — NVIDIA Nemotron** (fallback: Groq Llama 3.3 70B; D18) | Analytics/Scorecard sub-agent; async/offline only |
+| **Phase 2 — Complex scorecard synthesis** (Groq primary; Groq fallback) | **Groq Free Tier — NVIDIA Llama 3.3 70B** (fallback: Groq Llama 3.3 70B; D18) | Analytics/Scorecard sub-agent; async/offline only |
 | **Rejected (D17)** | GPT-4o Realtime, Moshi, Qwen2-Audio, ElevenLabs | — |
 | **Eliminated (D18)** | Silero VAD; Groq Whisper STT; Groq Llama (in-call); self-hosted Kokoro TTS; locally hosted Ollama/Llama 3.1 | — |
 
-- **Hybrid Loop (D19):** Candidate → Google Meet → WebRTC → WebRTC → `gemini-3.1-flash-live-preview` (live audio conversation) → Gemini Live auto-generates raw text transcript → text transcript written to Supabase `interviews` table (immutable) → Analytics/Scorecard sub-agent picks up transcript (text only) → Groq/Nemotron performs ALL evaluation on text. Gemini Live produces NO scoring output. The text transcript is the structural blind wall between voice and scorer.
+- **Hybrid Loop (D19):** Candidate → Google Meet → WebRTC → WebRTC → `gemini-3.1-flash-live-preview` (live audio conversation) → Gemini Live auto-generates raw text transcript → text transcript written to Supabase `interviews` table (immutable) → Analytics/Scorecard sub-agent picks up transcript (text only) → Groq/Llama 3.3 70B performs ALL evaluation on text. Gemini Live produces NO scoring output. The text transcript is the structural blind wall between voice and scorer.
 - Target end-to-end turn latency: **≤800 ms P50 / ≤1.5 s P95** (D18/D19; accounts for full routing path: Candidate → Google Meet → WebRTC → FastAPI → Gemini API → return; measured in S4).
 - Transcripts sourced from the **Gemini Live API auto-generated transcript stream** → immutable audit trail in Supabase.
 - **Prosody policy (D16, structural enforcement restored — D19):** Gemini Live features native “Affective dialog” and processes paralinguistics. System-prompt instruction alone is insufficient and explicitly rejected (D19). Structural enforcement: the text transcript passed to the scorer contains NO audio — paralinguistics are absent by construction. Gemini Live’s “affective” processing drives only conversational flow (turn-taking, barge-in), never evaluation. All scoring is transcript-text-grounded via Extractive Evaluation.
-- **Cost structure (D18/D19):** Gemini Live API (voice) + Groq Llama 3.3 70B (heavy reasoning/scoring) + OpenRouter Nemotron (scorecard) are all free-tier hosted APIs. Zero self-hosted GPU requirement. Caveats: [ASSUME: Gemini Live free-tier concurrent session limits acceptable; fallback to `gemini-2.5-flash-native-audio` on quota or model unavailability]; [ASSUME: Groq RPM limits acceptable for async brief batch; retry/backoff implemented]; [ASSUME: OpenRouter Nemotron free availability stable; fallback to Groq Llama 3.3 70B].
+- **Cost structure (D18/D19):** Gemini Live API (voice) + Groq Llama 3.3 70B (heavy reasoning/scoring) + Groq Llama 3.3 70B (scorecard) are all free-tier hosted APIs. Zero self-hosted GPU requirement. Caveats: [ASSUME: Gemini Live free-tier concurrent session limits acceptable; fallback to `gemini-2.5-flash-native-audio` on quota or model unavailability]; [ASSUME: Groq RPM limits acceptable for async brief batch; retry/backoff implemented]; [ASSUME: Groq Llama 3.3 70B free availability stable; fallback to Groq Llama 3.3 70B].
 
 ## 2.3 Voice ownership rule — architectural enforcement (absolute, unchanged)
 | Voice context | Who speaks | Who listens |
@@ -67,7 +67,7 @@ Never crossed, never reinterpreted. Enforcement point is now the **session broke
 5. Manager Agent shortlists → Scheduling sub-agent books slots, reports confirmation → Manager Agent assigns Communication sub-agent to send invites.
 6. Per confirmed slot: Manager Agent generates per-candidate interview brief (**Groq Llama 3.3 70B**, async/offline — D18) → dispatches Interviewer sub-agent (pre-dispatch checklist, §3.4).
 7. Candidate call: **Pre-Flight Sandbox** (2-min non-graded calibration, D12) → boundary announcement → official interview via **`gemini-3.1-flash-live-preview` WebRTC session** (live audio conversation — D19) → Gemini Live auto-generates raw text transcript → transcript written to immutable audit trail.
-8. Analytics/Scorecard sub-agent receives raw text transcript (NO audio) → runs **Extractive Evaluation** (Groq Llama 3.3 70B / OpenRouter Nemotron, text-only — D19 Hybrid Loop) → Manager Agent decides → Communication sub-agent emails candidate.
+8. Analytics/Scorecard sub-agent receives raw text transcript (NO audio) → runs **Extractive Evaluation** (Groq Llama 3.3 70B / Groq Llama 3.3 70B, text-only — D19 Hybrid Loop) → Manager Agent decides → Communication sub-agent emails candidate.
 9. Manager Agent digests + escalations (§3.1); Fairness & Bias Lens aggregates question telemetry continuously (§2.6).
 
 ## 2.5 Data stores (Supabase, rev 2)

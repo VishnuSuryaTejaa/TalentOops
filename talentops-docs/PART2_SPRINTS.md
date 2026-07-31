@@ -1,6 +1,6 @@
 # TalentOps — Part 2 Implementation Plan (Sprints 4-6)
 
-This document provides a highly granular, task-by-task breakdown for **Part 2: Voice Intelligence & Production (Sprints 4-6)** of the TalentOps project. It is fully aligned with the **D18/D19 API-Based Free Stack + Hybrid Loop** architecture: `gemini-3.1-flash-live-preview` (fallback: `gemini-2.5-flash-native-audio`) for live audio conversations, Groq Llama 3.3 70B for heavy async reasoning, and OpenRouter Nemotron for scorecard synthesis. The critical Hybrid Loop (D19) ensures structural prosody enforcement: Gemini Live handles audio conversation and auto-generates a raw text transcript; that text-only transcript is passed to the text-only scorer — the text IS the blind wall between voice and evaluation.
+This document provides a highly granular, task-by-task breakdown for **Part 2: Voice Intelligence & Production (Sprints 4-6)** of the TalentOps project. It is fully aligned with the **D18/D19 API-Based Free Stack + Hybrid Loop** architecture: `gemini-3.1-flash-live-preview` (fallback: `gemini-2.5-flash-native-audio`) for live audio conversations, Groq Llama 3.3 70B for heavy async reasoning, and Groq Llama 3.3 70B for scorecard synthesis. The critical Hybrid Loop (D19) ensures structural prosody enforcement: Gemini Live handles audio conversation and auto-generates a raw text transcript; that text-only transcript is passed to the text-only scorer — the text IS the blind wall between voice and evaluation.
 
 ---
 
@@ -132,14 +132,14 @@ This document provides a highly granular, task-by-task breakdown for **Part 2: V
 *   **Verification:** Inspect database after a mock call to ensure a complete, immutable event history is saved with no audio artifacts.
 
 ### [x] Task 5.6: Hybrid Loop Phase 2 — Scorecard Sub-Agent & Extractive Evaluation
-*   **Description:** Develop the Analytics/Scorecard sub-agent using **Groq Llama 3.3 70B** and **OpenRouter Nemotron** (text-only, async) to evaluate candidates from raw text transcripts. This is Phase 2 of the Hybrid Loop (D19) — the structural prosody enforcement stage.
+*   **Description:** Develop the Analytics/Scorecard sub-agent using **Groq Llama 3.3 70B** and **Groq Llama 3.3 70B** (text-only, async) to evaluate candidates from raw text transcripts. This is Phase 2 of the Hybrid Loop (D19) — the structural prosody enforcement stage.
 *   **Target Files:**
     *   `[NEW] app/agents/scorecard_agent.py` (Analytics/Scorecard agent logic — text-only input enforced)
 *   **Specifications:**
     *   **Hybrid Loop compliance (D19 — MANDATORY):** This agent receives ONLY the raw text transcript from the `interviews` table. It has zero access to audio, tone, or paralinguistic signals. Enforce this at the API boundary — do not pass any audio reference.
     *   **Extract First:** Identify verbatim candidate quotes supporting each rubric competency.
     *   **Validate Programmatically:** Perform substring search of quotes against the immutable text transcript. Reject and retry if quotes fail to match.
-    *   **Score Only After Validation:** Map evidence to a demonstrated level (L1/L2/L3) based on the frozen rubric. Use OpenRouter Nemotron (primary) or Groq Llama 3.3 70B (fallback) for synthesis.
+    *   **Score Only After Validation:** Map evidence to a demonstrated level (L1/L2/L3) based on the frozen rubric. Use Groq Llama 3.3 70B (primary) or Groq Llama 3.3 70B (fallback) for synthesis.
     *   **No Evidence, No Score:** Zero validated verbatim quotes for a competency → `insufficient_evidence` (no inferences allowed).
 *   **Verification:** Run scorecard agent with a mock text transcript. Verify: (1) JSON scorecard contains validated quotes with exact char offsets; (2) competencies without quotes default to `insufficient_evidence`; (3) agent code has no audio input path (structural enforcement audit).
 

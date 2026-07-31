@@ -113,7 +113,7 @@ class OralInterviewAgent:
             "question_number": question_number,
             "question_text": question_text,
             "candidate_answer_transcript": transcript,
-            "confidence_score": 0.85,
+            "confidence_score": None,
             "metadata": {
                 "candidate_id": candidate_id,
                 "role_id": role_id,

@@ -20,7 +20,7 @@ from app.rooms.signaling import room_ws_handler
 
 logger = logging.getLogger("talentops.rooms_router")
 
-router = APIRouter(prefix="/rooms", tags=["rooms"])
+router = APIRouter(prefix="/api/rooms", tags=["rooms"])
 
 
 @router.post("/create", response_model=CreateRoomResponse)
@@ -71,6 +71,9 @@ async def end_room(room_id: str) -> dict[str, Any]:
             return {"status": "already_closed", "room_id": room_id}
 
     res = await room_manager.close_room(room_id)
+    if res.get("status") == RoomStatus.EVALUATION_FAILED.value:
+        status_code = 422 if res.get("error_code") == "EMPTY_TRANSCRIPT" else 502
+        raise HTTPException(status_code=status_code, detail=res)
     return res
 
 

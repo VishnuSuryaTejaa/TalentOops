@@ -8,7 +8,7 @@
 
 ### 1.2 Credential & Token Security
 - **OAuth Token Storage**: `token.json` (Google Drive & Calendar OAuth) is strictly excluded from version control via `.gitignore`.
-- **Environment Secrets**: Database keys (`SUPABASE_KEY`), LLM API keys (`OPENROUTER_API_KEY`, `GROQ_API_KEY`), and SMTP credentials (`SMTP_PASSWORD`) are loaded strictly from environment variables via Pydantic `Settings`. No hardcoded secrets exist in source code.
+- **Environment Secrets**: Database keys (`SUPABASE_KEY`), LLM API keys (`GROQ_API_KEY4`, `GROQ_API_KEY`), and SMTP credentials (`SMTP_PASSWORD`) are loaded strictly from environment variables via Pydantic `Settings`. No hardcoded secrets exist in source code.
 
 ### 1.3 Data Protection & PII Defense
 - **Subagent Reporting Boundary**: Raw PII (candidate phone numbers, personal emails, residential addresses) extracted during sourcing is isolated inside subagent state and never exposed via public endpoints.

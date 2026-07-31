@@ -257,6 +257,19 @@ class RoomManager:
             if not live_transcript_turns and session and hasattr(session, "transcript") and session.transcript:
                 live_transcript_turns = session.transcript
 
+            candidate_answers = [
+                turn for turn in live_transcript_turns
+                if turn.get("speaker", "").lower() == "candidate" and turn.get("text", "").strip()
+            ]
+            if not candidate_answers:
+                room.status = RoomStatus.EVALUATION_FAILED
+                return {
+                    "status": RoomStatus.EVALUATION_FAILED.value,
+                    "room_id": room_id,
+                    "error_code": "EMPTY_TRANSCRIPT",
+                    "detail": "At least one candidate answer is required before evaluation.",
+                }
+
             # 2. Retrieve rubric
             rubric = room.metadata.get("rubric", {})
             if not rubric:
@@ -289,6 +302,23 @@ class RoomManager:
                 )
             except Exception as eval_exc:
                 logger.error("EvaluatorAgent failed during close_room for %s: %s", room_id, eval_exc)
+                room.status = RoomStatus.EVALUATION_FAILED
+                error_message = str(eval_exc)
+                if session:
+                    await session.broadcast({
+                        "type": "session-end",
+                        "data": {
+                            "room_id": room_id,
+                            "status": RoomStatus.EVALUATION_FAILED.value,
+                            "error_code": "EVALUATION_FAILED",
+                        },
+                    })
+                return {
+                    "status": RoomStatus.EVALUATION_FAILED.value,
+                    "room_id": room_id,
+                    "error_code": "EVALUATION_FAILED",
+                    "detail": error_message,
+                }
 
         await self.update_status(room_id, RoomStatus.EVALUATION_COMPLETE)
 

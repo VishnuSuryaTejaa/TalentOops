@@ -40,16 +40,7 @@ def run_screening(run_id: str, goal: str, rubric: Rubric, candidates: list[dict[
     matches = match(run_id, jd_vector, kind="candidate", top_k=top_k)
     
     if not matches and candidates:
-        logger.warning("Supabase match returned empty. Using fallback in-memory matching.")
-        from app.embeddings.embedder import cosine
-        fallback_matches = []
-        for cand in candidates:
-            text_to_embed = f"Summary: {cand.get('summary', '')}\nSkills: {', '.join(cand.get('skills') or [])}"
-            c_vec = embedder.embed(text_to_embed)
-            score = cosine(jd_vector, c_vec)
-            fallback_matches.append({"ref_id": cand["id"], "score": score})
-        fallback_matches.sort(key=lambda x: x["score"], reverse=True)
-        matches = fallback_matches[:top_k]
+        logger.warning("Supabase match returned empty. Proceeding with empty shortlist.")
 
     shortlist = []
     for m in matches:

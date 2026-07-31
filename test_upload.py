@@ -34,10 +34,11 @@ University of Technology, 2020
 
 encoded = base64.b64encode(resume_text.encode('utf-8')).decode('utf-8')
 
-response = requests.post(
-    "http://127.0.0.1:8000/upload_resume",
-    json={"file_name": "test_resume.txt", "content": encoded}
-)
+if __name__ == "__main__":
+    response = requests.post(
+        "http://127.0.0.1:8000/upload_resume",
+        json={"file_name": "test_resume.txt", "content": encoded}
+    )
 
-print(response.status_code)
-print(response.json())
+    print(response.status_code)
+    print(response.json())

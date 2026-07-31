@@ -15,7 +15,7 @@ export default function DeployBot({ roleId, candidateId, interviewId, onDeployed
     setCreating(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/interviews/deploy`, {
+      const res = await fetch(`${API_BASE}/api/interviews/deploy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -43,7 +43,7 @@ export default function DeployBot({ roleId, candidateId, interviewId, onDeployed
     setEnding(true);
     setError(null);
     try {
-      await fetch(`${API_BASE}/rooms/${roomId}/end`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/rooms/${roomId}/end`, { method: 'POST' });
       setRoomId('');
       setRoomUrl('');
       if (onEnded) onEnded();

@@ -49,7 +49,12 @@ class STTService:
 
     def _transcribe_sync(self, audio_bytes: bytes) -> str:
         if self.provider == "deepgram":
-            return self._transcribe_deepgram(audio_bytes)
+            from app.config import get_settings
+            settings = get_settings()
+            if getattr(settings, "DEEPGRAM_API_KEY", ""):
+                return self._transcribe_deepgram(audio_bytes)
+            else:
+                return self._transcribe_whisper(audio_bytes)
         raise ValueError(f"Unknown STT provider: {self.provider}")
 
     def _transcribe_deepgram(self, audio_bytes: bytes) -> str:
@@ -63,7 +68,7 @@ class STTService:
             raise ValueError("[deepgram-stt] DEEPGRAM_API_KEY is not set. Real API execution is enforced.")
 
         content_type = _detect_audio_content_type(audio_bytes)
-        url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&punctuate=true"
+        url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&punctuate=true&filler_words=true&endpointing=500"
         headers = {
             "Authorization": f"Token {api_key}",
             "Content-Type": content_type,
@@ -84,11 +89,42 @@ class STTService:
             logger.warning("[deepgram-stt] Deepgram API call failed: %s", exc)
             return ""
 
+    def _transcribe_whisper(self, audio_bytes: bytes) -> str:
+        """Call Groq Whisper for speech-to-text transcription as fallback."""
+        import httpx
+        from app.config import get_settings
+        settings = get_settings()
+
+        api_key = settings.groq_api_keys[0] if settings.groq_api_keys else ""
+        if not api_key:
+            logger.warning("[whisper-stt] Groq API key is not set for Whisper fallback.")
+            return ""
+
+        url = "https://api.groq.com/openai/v1/audio/transcriptions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+        }
+        files = {
+            "file": ("audio.wav", audio_bytes, "audio/wav")
+        }
+        data = {
+            "model": "whisper-large-v3"
+        }
+        try:
+            response = httpx.post(url, headers=headers, files=files, data=data, timeout=30.0)
+            response.raise_for_status()
+            transcript = response.json().get("text", "")
+            logger.info("[whisper-stt] Transcribed %d bytes -> %d chars", len(audio_bytes), len(transcript))
+            return transcript
+        except Exception as exc:
+            logger.warning("[whisper-stt] Whisper API call failed: %s", exc)
+            return ""
+
 
 class TTSService:
     """Async Text-to-Speech service for generating spoken audio questions."""
 
-    def __init__(self, provider: str = "google"):
+    def __init__(self, provider: str = "openai"):
         self.provider = provider
 
     async def synthesize_speech(self, text: str) -> bytes:
@@ -103,9 +139,50 @@ class TTSService:
             raise RuntimeError(f"TTS synthesis failed (provider={self.provider}): {e}") from e
 
     def _synthesize_sync(self, text: str) -> bytes:
+        if self.provider == "openai":
+            try:
+                return self._synthesize_openai(text)
+            except Exception as e:
+                logger.warning("[openai-tts] Failed, falling back to google: %s", e)
+                return self._synthesize_google(text)
         if self.provider == "google":
             return self._synthesize_google(text)
         raise ValueError(f"Unknown TTS provider: {self.provider}")
+
+    def _synthesize_openai(self, text: str) -> bytes:
+        """Call OpenAI TTS API for natural speech synthesis."""
+        import httpx
+        from app.config import get_settings
+        settings = get_settings()
+
+        api_key = getattr(settings, "OPENAI_API_KEY", "")
+        if not api_key:
+            raise ValueError("[openai-tts] OPENAI_API_KEY is not set.")
+
+        import re
+        clean_text = re.sub(r'[*_#`]', '', text).strip()
+
+        url = "https://api.openai.com/v1/audio/speech"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "tts-1",
+            "input": clean_text,
+            "voice": "shimmer",
+            "response_format": "mp3"
+        }
+        
+        try:
+            response = httpx.post(url, json=payload, headers=headers, timeout=10.0)
+            response.raise_for_status()
+            audio_bytes = response.content
+            logger.info("[openai-tts] Synthesized %d chars -> %d bytes audio", len(text), len(audio_bytes))
+            return audio_bytes
+        except Exception as exc:
+            logger.warning("[openai-tts] OpenAI API call failed: %s", exc)
+            raise
 
     def _synthesize_google(self, text: str) -> bytes:
         """Call Google Cloud Text-to-Speech API for real audio synthesis."""
@@ -123,9 +200,13 @@ class TTSService:
             raise ValueError("[google-tts] No Google Cloud TTS API key configured. Real API execution is enforced.")
 
         url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
+        import re
+        # Strip markdown (asterisks, underscores, hashes) which can cause TTS to glitch or fallback
+        clean_text = re.sub(r'[*_#`]', '', text).strip()
+        
         payload = {
-            "input": {"text": text},
-            "voice": {"languageCode": "en-US", "name": "en-US-Neural2-D", "ssmlGender": "NEUTRAL"},
+            "input": {"ssml": f"<speak><prosody rate='90%'>{clean_text}</prosody></speak>"},
+            "voice": {"languageCode": "en-US", "name": "en-US-Journey-F"},
             "audioConfig": {"audioEncoding": "MP3"},
         }
         try:

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import TapeLabelHeader from './TapeLabelHeader';
 import CandidateChannelStrip from './CandidateChannelStrip';
 import UploadZone from './UploadZone';

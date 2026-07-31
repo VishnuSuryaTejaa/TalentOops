@@ -69,7 +69,7 @@ export default function FairnessHeatmap({ roleId }) {
 
   useEffect(() => {
     const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
-    fetch(`${apiBase}/fairness/heatmap?role_id=${encodeURIComponent(roleId)}`)
+    fetch(`${apiBase}/api/fairness/heatmap?role_id=${encodeURIComponent(roleId)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setData)
       .catch((e) => setError(e.message));

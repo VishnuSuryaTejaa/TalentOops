@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Printer, Search, TrendingUp, MessageSquare, Award, Sparkles } from 'lucide-react';
+import { Printer, MessageSquare } from 'lucide-react';
 import TranscriptBlock from './TranscriptBlock';
 import ScorecardView from './ScorecardView';
 
@@ -9,7 +9,7 @@ export default function EvaluationReport({ interviewId, initialData = null }) {
   const [evaluation, setEvaluation] = useState(initialData);
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  // searchQuery removed
 
   useEffect(() => {
     let isMounted = true;
@@ -22,8 +22,7 @@ export default function EvaluationReport({ interviewId, initialData = null }) {
       if (!interviewId) return;
       setError('');
       try {
-        const queryParam = searchQuery ? `?q=${encodeURIComponent(searchQuery)}` : '';
-        const res = await fetch(`${API_BASE}/api/interviews/${interviewId}/evaluation${queryParam}`, {
+        const res = await fetch(`${API_BASE}/api/interviews/${interviewId}/evaluation`, {
           headers: {
             'Content-Type': 'application/json',
             'X-User-Role': 'hr',
@@ -57,14 +56,14 @@ export default function EvaluationReport({ interviewId, initialData = null }) {
       }
     }
 
-    if (initialData && !searchQuery) {
+    if (initialData) {
       setEvaluation(initialData);
       setLoading(false);
     } else {
       if (!evaluation) setLoading(true);
       fetchTimer = setTimeout(() => {
         fetchEvaluation();
-      }, searchQuery ? 300 : 0);
+      }, 0);
     }
 
     return () => {
@@ -72,7 +71,7 @@ export default function EvaluationReport({ interviewId, initialData = null }) {
       if (pollTimer) clearTimeout(pollTimer);
       if (fetchTimer) clearTimeout(fetchTimer);
     };
-  }, [interviewId, initialData, searchQuery]);
+  }, [interviewId, initialData]);
 
   const handlePrint = () => {
     window.print();

@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from app.config import settings
-from app.services.llm_clients import openrouter_chat, groq_chat
+from app.services.llm_clients import groq_chat
 
 logger = logging.getLogger("talentops.conversation_manager")
 
@@ -118,7 +118,7 @@ class ConversationManager:
         next_q = None
         if not settings.is_offline_mode:
             try:
-                next_q = await openrouter_chat(messages, json_mode=False)
+                next_q = await groq_chat(messages, json_mode=False)
             except Exception:
                 try:
                     next_q = await groq_chat(messages, json_mode=False)
@@ -126,10 +126,7 @@ class ConversationManager:
                     pass
 
         if not next_q:
-            if is_vague or is_injection:
-                next_q = f"Could you elaborate specifically on the technical architecture, tools, and design decisions in your previous work?"
-            else:
-                next_q = f"Regarding {self.job_description.split()[0] if self.job_description else 'software engineering'}, how do you handle performance, concurrency, and failure recovery under high load?"
+            raise RuntimeError("Failed to generate the next interview question via LLM.")
 
         next_q = next_q.strip().strip('"')
         self.turns.append({"question": next_q, "answer": ""})

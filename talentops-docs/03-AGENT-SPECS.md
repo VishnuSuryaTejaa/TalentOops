@@ -94,7 +94,7 @@
 5. **Gemini Live produces NO scoring, competency rating, or evaluation output.** Its role is strictly conversational. Turn-latency target ≤800 ms P50 / ≤1.5 s P95 (D18/D19; includes full routing: Candidate → Meet → WebRTC → FastAPI → Gemini API → return).
 
 **Phase 2 — Async text-only scoring (Hybrid Loop — D19; structural prosody enforcement):**
-6. After call: raw text transcript (text only, NO audio) passed to Analytics/Scorecard sub-agent → Groq Llama 3.3 70B / OpenRouter Nemotron performs ALL evaluation and Extractive Evaluation scoring exclusively on text. Paralinguistic signals are structurally absent from the text transcript — the text IS the blind wall.
+6. After call: raw text transcript (text only, NO audio) passed to Analytics/Scorecard sub-agent → Groq Llama 3.3 70B / Groq Llama 3.3 70B performs ALL evaluation and Extractive Evaluation scoring exclusively on text. Paralinguistic signals are structurally absent from the text transcript — the text IS the blind wall.
 
 **Failure modes:** `gemini-3.1-flash-live-preview` quota exhaustion mid-call (mitigate: graceful session termination + fallback; partial transcript preserved); WebRTC WebRTC bridge drop; transcript generation gap; adaptive question drift off-rubric; protected-attribute drift; no-show; sandbox telemetry gate failure.
 **Escalation:** confidence < threshold → `[NEEDS_HUMAN_REVIEW]`; anomaly flags; unrecoverable session failure → end call gracefully, report partial transcript; failed telemetry gate → reschedule via Manager Agent.

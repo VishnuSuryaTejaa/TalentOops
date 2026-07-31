@@ -65,17 +65,17 @@ async def ws_endpoint(websocket, meeting_id: str) -> None:
     call_meta = await chain.open_call()
     chain.acknowledge_consent()
     
-    # Start a GeminiLiveSession in script mode for onboarding/connection-check flow.
-    # Script mode is used here deliberately: this is the WebSocket audio bridge endpoint
-    # which handles the pre-interview connection check sequence, not the main interview.
-    # The real Gemini Live API session is started by MultiAgentCoordinator after consent.
-    session = GeminiLiveSession(session=voice_session, interview_id=meeting_id, script=[
-        call_meta["announcement"],
-        "Hi! Before we start, this is a quick non-graded mic and connection check.",
-        "How's your audio on your end? Feel free to say a sentence or two.",
-        "Great — any questions about how the interview works before we begin?",
-        "Okay, the official interview will now begin."
-    ])
+    # Start a GeminiLiveSession for the onboarding/connection-check flow.
+    # We now use the real LLM generation mode instead of a hardcoded script.
+    # The real interview Gemini Live API session is later started by MultiAgentCoordinator.
+    session = GeminiLiveSession(
+        session=voice_session, 
+        interview_id=meeting_id,
+        brief={
+            "role": "Connection Check Assistant",
+            "competencies": "Briefly greet the user, ask them to say a sentence to check their microphone and connection. Answer any quick questions they have about the interview process, then warmly state that the official interview will begin."
+        }
+    )
     await session.start()
     
     frame_count = 0
@@ -87,10 +87,22 @@ async def ws_endpoint(websocket, meeting_id: str) -> None:
             # Simple VAD implementation: emit a transcript turn every ~100 frames of audio received
             frame_count += 1
             if frame_count % 100 == 0:
-                if session._script:
-                    await session.next_turn("Testing audio transmission...")
+                # Call next_turn using real LLM generation
+                reply = await session.next_turn("Testing audio transmission...")
+                if reply:
+                    from app.services.speech_engine import TTSService
+                    tts = TTSService()
+                    # Generate human-sounding voice response (markdown stripped in TTS engine)
+                    audio_bytes = await tts.synthesize_speech(reply)
+                    if audio_bytes:
+                        # Chunk the TTS audio into the outgoing queue so the client hears it
+                        chunk_size = 4096
+                        for i in range(0, len(audio_bytes), chunk_size):
+                            await bridge.put_outgoing(audio_bytes[i:i+chunk_size])
                 
             await bridge.loopback_once()
             await websocket.send_bytes(await bridge.get_outgoing())
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("talentops.audio_bridge").error("Audio bridge error: %s", e)
+

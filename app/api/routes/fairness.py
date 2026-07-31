@@ -9,7 +9,7 @@ router = APIRouter()
 DRIFT_THRESHOLD = 0.75
 
 
-@router.get("/fairness/heatmap")
+@router.get("/api/fairness/heatmap")
 async def heatmap(role_id: str, k: int = settings.K_ANONYMITY) -> dict:
     demographics = await db.query("demographics")
     interviews = await db.query("interviews", role_id=role_id)

@@ -80,27 +80,33 @@ class RemoteLLMClient:
         self.provider = provider
         self.settings = settings
         if provider == "groq":
-            primary_key = settings.GROQ_API_KEY or getattr(settings, "GROQ_API_KEY2", "")
+            primary_key = next(iter(settings.groq_api_keys), "")
             self._client = OpenAI(api_key=primary_key, base_url="https://api.groq.com/openai/v1")
             self._model = "llama-3.3-70b-versatile"
-        elif provider == "openrouter":
-            self._client = OpenAI(api_key=settings.OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
-            self._model = settings.llm_model if settings.llm_model else "meta-llama/llama-3.3-70b-instruct"
         else:
             raise ValueError(f"Unknown LLM provider: {provider}")
 
     def complete_json(self, system: str, user: str, schema_hint: dict[str, Any]) -> dict[str, Any]:
         from openai import OpenAI
+        import itertools
+
+        if not hasattr(self.__class__, "_request_counter"):
+            self.__class__._request_counter = itertools.count()
+
         keys = []
         if self.provider == "groq":
-            keys = [k for k in [self.settings.GROQ_API_KEY, getattr(self.settings, "GROQ_API_KEY2", "")] if k]
-        else:
-            keys = [self.settings.OPENROUTER_API_KEY]
+            keys = self.settings.groq_api_keys
+
+        if not keys:
+            raise ValueError("No Groq API keys configured in environment.")
 
         last_error = None
-        for key in keys:
+        start_index = next(self.__class__._request_counter) % len(keys)
+        ordered_keys = keys[start_index:] + keys[:start_index]
+
+        for key in ordered_keys:
             try:
-                base_url = "https://api.groq.com/openai/v1" if self.provider == "groq" else "https://openrouter.ai/api/v1"
+                base_url = "https://api.groq.com/openai/v1"
                 client = OpenAI(api_key=key, base_url=base_url)
                 resp = client.chat.completions.create(
                     model=self._model,
@@ -130,4 +136,3 @@ class RemoteLLMClient:
 def get_llm_client() -> LLMClient:
     provider = get_settings().llm_provider
     return RemoteLLMClient(provider)
-

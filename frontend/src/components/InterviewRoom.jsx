@@ -28,19 +28,21 @@ export default function InterviewRoom({ roomId }) {
   const [fsmState,    setFsmState]    = useState('OPENING');
   const [errorMsg,    setErrorMsg]    = useState('');
   const [consentGranted, setConsentGranted] = useState(false);
+  const [candidateName, setCandidateName] = useState('');
 
   const [totalSeconds,     setTotalSeconds]     = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
-  const [roomMeta,        setRoomMeta]        = useState(null);
+  // Remove roomMeta to avoid unused state
 
   const wsRef          = useRef(null);
   const localVideoRef  = useRef(null);
   const localStream    = useRef(null);
   const transcriptEnd  = useRef(null);
-  const recognizerRef  = useRef(null);
+  const mediaRecorderRef = useRef(null);
   const micOnRef       = useRef(true);
   const stageRef       = useRef(STAGE.LOBBY);
   const countdownRef   = useRef(null);
+  const selectedVoiceRef = useRef(null);
 
   /* ── webcam preview ─────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -69,45 +71,55 @@ export default function InterviewRoom({ roomId }) {
     }
   }, [camOn]);
 
-  const silenceTimerRef = useRef(null);
-  const handleTurnSendRef = useRef(null);
-  const finalTranscriptRef = useRef('');
-
   useEffect(() => {
-    if (typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const rec = new SpeechRecognition();
-      rec.continuous = true;
-      rec.interimResults = true;
-      rec.onresult = (e) => {
-        let final = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) {
-            final += e.results[i][0].transcript;
-          }
+    if (micOn && localStream.current && wsRef.current?.readyState === WebSocket.OPEN && stage === STAGE.INTERVIEW) {
+      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
+        try {
+          const audioStream = new MediaStream(localStream.current.getAudioTracks());
+          const recorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' });
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(e.data);
+            }
+          };
+          recorder.start(500); // Send audio in 500ms chunks
+          mediaRecorderRef.current = recorder;
+        } catch (err) {
+          console.warn('MediaRecorder start failed:', err);
         }
-        if (final) {
-          finalTranscriptRef.current += final + ' ';
-          setTurnInput(finalTranscriptRef.current);
-        }
-      };
-      rec.onerror = (e) => console.warn('Speech recognition error:', e.error);
-      recognizerRef.current = rec;
+      }
+    } else {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {}
+      }
     }
-  }, []);
+  }, [micOn, stage]);
 
   useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript]);
 
   const pickBestVoice = useCallback(() => {
+    if (selectedVoiceRef.current) return selectedVoiceRef.current;
+
     const voices = window.speechSynthesis?.getVoices() || [];
+    if (voices.length === 0) return null;
+
     const preferred = ['Google UK English Female', 'Google US English', 'Samantha', 'Alex', 'Karen'];
     for (const name of preferred) {
       const v = voices.find(v => v.name === name);
-      if (v) return v;
+      if (v) {
+        selectedVoiceRef.current = v;
+        return v;
+      }
     }
-    return voices.find(v => v.lang?.startsWith('en')) || voices[0] || null;
+    const defaultVoice = voices.find(v => v.lang?.startsWith('en')) || voices[0] || null;
+    if (defaultVoice) {
+      selectedVoiceRef.current = defaultVoice;
+    }
+    return defaultVoice;
   }, []);
 
   const speakText = useCallback((text) => {
@@ -128,13 +140,6 @@ export default function InterviewRoom({ roomId }) {
 
   useEffect(() => {
     micOnRef.current = micOn;
-    const rec = recognizerRef.current;
-    if (!rec) return;
-    if (micOn) {
-      try { rec.start(); } catch {}
-    } else {
-      try { rec.stop(); } catch {}
-    }
   }, [micOn]);
 
   useEffect(() => {
@@ -147,7 +152,7 @@ export default function InterviewRoom({ roomId }) {
   /* ── WebSocket connection ───────────────────────────────────────────────── */
   const connectWs = useCallback(() => {
     if (!roomId) return;
-    const ws = new WebSocket(`${WS_BASE}/ws/room/${roomId}`);
+    const ws = new WebSocket(`${WS_BASE}/api/ws/room/${roomId}`);
     wsRef.current = ws;
 
     ws.onopen = () => setStage(STAGE.CONSENT);
@@ -159,7 +164,9 @@ export default function InterviewRoom({ roomId }) {
 
       switch (type) {
         case 'room-joined':
-          setRoomMeta(data);
+          if (data.candidate_name) {
+            setCandidateName(data.candidate_name);
+          }
           break;
 
         case 'consent-ask':
@@ -279,16 +286,21 @@ export default function InterviewRoom({ roomId }) {
 
   const handleTurnSend = useCallback((overrideText) => {
     const textToSend = typeof overrideText === 'string' ? overrideText : turnInput;
-    if (!textToSend || !textToSend.trim()) return;
+    // Do not check for empty text because we might be sending binary audio instead
+    
+    // We do not eagerly append to transcript locally, we wait for backend broadcast
+    const finalizeTurn = () => {
+      sendFrame('interview-turn', { text: textToSend.trim() });
+      setTurnInput('');
+      setMicOn(false);
+    };
 
-    const finalStr = textToSend.trim();
-    setTranscript(prev => [
-      ...prev, { speaker: 'candidate', text: finalStr }
-    ]);
-    sendFrame('interview-turn', { text: finalStr });
-    setTurnInput('');
-    finalTranscriptRef.current = '';
-    setMicOn(false);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.onstop = finalizeTurn;
+      mediaRecorderRef.current.stop();
+    } else {
+      finalizeTurn();
+    }
   }, [turnInput]);
 
   useEffect(() => {
@@ -298,7 +310,7 @@ export default function InterviewRoom({ roomId }) {
   const handleEnd = async () => {
     sendFrame('session-end');
     wsRef.current?.close();
-    await fetch(`${API_BASE}/rooms/${roomId}/end`, { method: 'POST' }).catch(() => {});
+    await fetch(`${API_BASE}/api/rooms/${roomId}/end`, { method: 'POST' }).catch(() => {});
     setStage(STAGE.COMPLETE);
   };
 
@@ -314,7 +326,7 @@ export default function InterviewRoom({ roomId }) {
           <span className="text-slate-700 font-mono text-xs">|</span>
           {/* Candidate Identity Reduced to Mono Label (Fairness Model Constraint) */}
           <span className="font-mono text-xs text-[var(--mute)]">
-            CANDIDATE ID: <span className="text-[var(--bone)]">{roomId || 'c-candidate'}</span>
+            CANDIDATE: <span className="text-[var(--bone)]">{candidateName || 'Unknown'}</span>
           </span>
         </div>
 
@@ -522,7 +534,7 @@ export default function InterviewRoom({ roomId }) {
                   type="button"
                   id="btn-send-turn"
                   onClick={() => handleTurnSend()}
-                  disabled={!turnInput.trim()}
+                  disabled={!turnInput.trim() && !micOn}
                   className="px-5 py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-xs font-bold hover:bg-[#e6ff00] disabled:opacity-40 transition-all"
                 >
                   TRANSMIT TURN

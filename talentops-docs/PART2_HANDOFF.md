@@ -32,7 +32,7 @@ Part 2 is the **Voice Intelligence & Production** half of TalentOps: everything 
 | Escalation | `app/agents/manager_agent.py` | Escalation rules (low_confidence, double_conflict, no_qualified_candidates, …) + `decide()` → invite/reject/hold |
 | Dashboard | `frontend/src/components/TranscriptStream.jsx` | Live transcript stream (Supabase Realtime) |
 | Dashboard | `frontend/src/components/FairnessHeatmap.jsx` | Demographics heatmap with suppression + drift banner |
-| Shared | `app/config.py`, `app/services/database.py`, `app/models/schemas.py`, `app/services/llm_clients.py` | Settings, data layer, contract models (§4 of 04-API-EVENT-CONTRACT.md), Groq/OpenRouter clients |
+| Shared | `app/config.py`, `app/services/database.py`, `app/models/schemas.py`, `app/services/llm_clients.py` | Settings, data layer, contract models (§4 of 04-API-EVENT-CONTRACT.md), Groq/Groq clients |
 
 ### Run it
 
@@ -44,7 +44,7 @@ Part 2 is the **Voice Intelligence & Production** half of TalentOps: everything 
 npm --prefix frontend install && npm --prefix frontend run dev   # http://localhost:5173
 ```
 
-**Offline vs live:** `settings.OFFLINE_MODE` is `True` unless **both** `GEMINI_API_KEY` and `SUPABASE_URL` are set. Offline, every external service (Supabase, Groq, OpenRouter, Gemini Live, WebRTC, Gmail) is a deterministic in-process stub — that's what makes the whole pipeline testable with zero keys. Env vars for live mode: `SUPABASE_URL`, `SUPABASE_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `WEBRTC_BASE_URL`.
+**Offline vs live:** `settings.OFFLINE_MODE` is `True` unless **both** `GEMINI_API_KEY` and `SUPABASE_URL` are set. Offline, every external service (Supabase, Groq, Groq, Gemini Live, WebRTC, Gmail) is a deterministic in-process stub — that's what makes the whole pipeline testable with zero keys. Env vars for live mode: `SUPABASE_URL`, `SUPABASE_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `GROQ_API_KEY4`, `WEBRTC_BASE_URL`.
 
 ---
 

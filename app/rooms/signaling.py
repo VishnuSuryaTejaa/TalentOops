@@ -112,9 +112,12 @@ async def _run_agent_pipeline(
         async def next_turn(self, text: str) -> str:
             return f"Tell me more about: {text[:80]}"
 
+    cand_rows = await db.query("candidates", id=candidate_id)
+    cand_name = cand_rows[0].get("name") or candidate_id if cand_rows else candidate_id
+
     fsm = InterviewerFSM(
         rubric=rubric,
-        brief={"candidate_name": candidate_id},
+        brief={"candidate_name": cand_name},
         session=_AsyncSession(),
     )
 
@@ -213,6 +216,9 @@ class _InteractiveRoomSession:
         # Pending queue: candidate frames received while agent is "thinking"
         self._turn_queue: asyncio.Queue[str] = asyncio.Queue()
 
+        # Audio buffer for candidate voice
+        self._audio_buffer = bytearray()
+
         # Interviewer FSM state
         self._fsm = None
         self._rubric: dict[str, Any] = {}
@@ -228,7 +234,18 @@ class _InteractiveRoomSession:
 
         try:
             while True:
-                raw = await self.ws.receive_text()
+                message = await self.ws.receive()
+                
+                if "bytes" in message:
+                    if state == "INTERVIEW_ACTIVE":
+                        self._audio_buffer.extend(message["bytes"])
+                    continue
+                
+                if "text" in message:
+                    raw = message["text"]
+                else:
+                    continue
+
                 msg = self._parse(raw)
                 if msg is None:
                     continue
@@ -279,6 +296,19 @@ class _InteractiveRoomSession:
                 elif state == "INTERVIEW_ACTIVE":
                     if msg_type == SignalType.INTERVIEW_TURN.value:
                         candidate_text = data.get("text", "").strip()
+                        
+                        if not candidate_text and self._audio_buffer:
+                            audio_data = bytes(self._audio_buffer)
+                            self._audio_buffer.clear()
+                            try:
+                                from app.services.speech_engine import STTService
+                                stt = STTService()
+                                candidate_text = await stt.transcribe_audio(audio_data)
+                                candidate_text = candidate_text.strip()
+                                logger.info("Transcribed audio turn in room %s: %s", self.room_id, candidate_text)
+                            except Exception as e:
+                                logger.error("STT processing failed in room %s: %s", self.room_id, e)
+
                         if candidate_text:
                             await self._turn_queue.put(candidate_text)
                     else:
@@ -385,11 +415,12 @@ class _InteractiveRoomSession:
                 self._rubric = self._default_rubric()
 
             # BUG-07: Fetch candidate resume from Supabase so questions are resume-grounded
+            cand_name = self.candidate_id
             try:
                 cand_rows = await db.query("candidates", id=self.candidate_id)
                 if cand_rows:
                     c = cand_rows[0]
-                    cand_name = c.get("name") or self.candidate_id
+                    cand_name = c.get("name") or cand_name
                     cand_email = c.get("email") or ""
                     cand_phone = c.get("phone") or ""
                     cand_summary = c.get("summary") or ""
@@ -449,7 +480,7 @@ class _InteractiveRoomSession:
 
             self._fsm = InterviewerFSM(
                 rubric=self._rubric,
-                brief={"candidate_name": self.candidate_id},
+                brief={"candidate_name": cand_name},
                 session=_LiveSession(),
             )
             self._fsm.advance()  # Advance to OPENING
@@ -864,16 +895,7 @@ async def room_ws_handler(websocket: WebSocket, room_id: str) -> None:
     # Register client in room
     session = await room_manager.join_room(room_id, websocket)
 
-    # Send room-joined frame
-    await _safe_send(websocket, _frame(SignalType.ROOM_JOINED, {
-        "room_id":      room_id,
-        "room_url":     room.room_url,
-        "candidate_id": room.candidate_id,
-        "interview_id": room.interview_id,
-        "status":       room.status.value,
-    }))
-
-    # Send consent disclosure (welcome message from Consent Agent)
+    # Get candidate name for display and disclosure
     from app.agents.consent_agent import ConsentAgent
     from app.services.parser import clean_candidate_name
 
@@ -885,8 +907,36 @@ async def room_ws_handler(websocket: WebSocket, room_id: str) -> None:
     except Exception:
         pass
 
+    # Send room-joined frame
+    await _safe_send(websocket, _frame(SignalType.ROOM_JOINED, {
+        "room_id":      room_id,
+        "room_url":     room.room_url,
+        "candidate_id": room.candidate_id,
+        "candidate_name": cand_display_name,
+        "interview_id": room.interview_id,
+        "status":       room.status.value,
+    }))
+
+
+
     disclosure = ConsentAgent().get_disclosure_script(cand_display_name)
-    await _safe_send(websocket, _frame(SignalType.CONSENT_ASK, {"text": disclosure}))
+    
+    from app.config import settings
+    from app.services.speech_engine import TTSService
+    
+    audio_b64 = None
+    if settings.TTS_PROVIDER:
+        try:
+            tts = TTSService(settings.TTS_PROVIDER)
+            audio_b64 = await tts.synthesize_speech_b64(disclosure)
+        except Exception as exc:
+            logger.warning("TTS synthesis failed for consent disclosure: %s", exc)
+
+    payload = {"text": disclosure}
+    if audio_b64:
+        payload["audio_b64"] = audio_b64
+
+    await _safe_send(websocket, _frame(SignalType.CONSENT_ASK, payload))
 
     run_id = getattr(session, "run_id", None) or f"run-room-{room_id[:8]}"
 

@@ -73,62 +73,23 @@ class Database:
         data = q.execute().data
         return data if data is not None else []
 
-    def query_sync(self, table: str, **eq: Any) -> list[dict]:
-        """Query rows synchronously from database."""
-        try:
-            q = self._sb().table(table).select("*")
-            for k, v in eq.items():
-                q = q.eq(k, v)
-            data = q.execute().data
-            return data if data is not None else []
-        except Exception as e:
-            if logger:
-                logger.error(
-                    "Remote table '%s' query_sync failed (%s: %s)",
-                    table, type(e).__name__, str(e).splitlines()[0] if str(e) else ""
-                )
-            return []
 
-    def get_sync(self, table: str, row_id: str) -> dict | None:
-        """Fetch a row synchronously from database."""
-        try:
-            data = self._sb().table(table).select("*").eq("id", row_id).execute().data
-            return data[0] if data else None
-        except Exception:
-            return None
-
-    def insert_sync(self, table: str, row: dict) -> dict:
-        """Insert a row synchronously into database."""
-        try:
-            data = self._sb().table(table).insert(row).execute().data
-            return data[0] if data else row
-        except Exception as e:
-            if logger:
-                logger.error(
-                    "Remote table '%s' insert_sync failed (%s: %s)",
-                    table, type(e).__name__, str(e).splitlines()[0] if str(e) else ""
-                )
-            raise
 
     async def append_transcript(self, interview_id: str, chunk: dict) -> None:
         if interview_id in self._finalized:
             raise TranscriptFinalizedError(interview_id)
 
-        from datetime import datetime, timezone
-        row = await self.get("interviews", interview_id)
-        if row:
-            t_list = row.get("transcript") or []
-            t_list.append(dict(chunk))
-            await self.update("interviews", interview_id, {"transcript": t_list})
-        else:
-            try:
-                await self.insert("interviews", {
-                    "id": interview_id,
-                    "transcript": [dict(chunk)],
-                })
-            except Exception as exc:
-                if logger:
-                    logger.warning("Could not auto-create interviews row for %s: %s", interview_id, exc)
+        try:
+            self._sb().rpc("append_transcript", {
+                "p_interview_id": interview_id,
+                "p_chunk": chunk
+            }).execute()
+        except Exception as exc:
+            if logger:
+                logger.error("Failed to append transcript via RPC for %s: %s", interview_id, exc)
+            if metrics_collector:
+                metrics_collector.increment_error_count("database", "append_transcript")
+            raise
 
     async def finalize_transcript(self, interview_id: str) -> None:
         self._finalized.add(interview_id)

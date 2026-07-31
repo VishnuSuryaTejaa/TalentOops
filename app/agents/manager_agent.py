@@ -235,10 +235,10 @@ def determine_next_stage(current_stage: str | None, completed: list[str]) -> tup
     if current_stage == WorkflowStage.COORDINATION:
         if "coordination" not in completed:
             return WorkflowStage.COORDINATION, "coordination"
-        return WorkflowStage.ASSESSMENT, "assessment"
+        return WorkflowStage.WAITING_FOR_ASSESSMENT, "FINISH"
 
     if current_stage == WorkflowStage.WAITING_FOR_ASSESSMENT:
-        return WorkflowStage.ASSESSMENT, "assessment"
+        return WorkflowStage.WAITING_FOR_ASSESSMENT, "FINISH"
 
     if current_stage == WorkflowStage.ASSESSMENT:
         if "assessment" not in completed:

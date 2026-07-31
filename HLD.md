@@ -95,7 +95,7 @@ graph TD
 
     subgraph Driven Ports & Adapters
         DrivePort[Google Drive Ingestion Port] --> DriveAdapter[Google Drive API / Public Downloader]
-        EmbedPort[Embedding Port] --> EmbedAdapter[OpenRouter / OpenAI / Supabase pgvector]
+        EmbedPort[Embedding Port] --> EmbedAdapter[Groq / OpenAI / Supabase pgvector]
         CalendarPort[Calendar Booking Port] --> CalendarAdapter[Google Calendar API]
         EmailPort[Communication Port] --> EmailAdapter[SMTP / Gmail API Adapter]
         AudioPort[WebRTC Audio Bot Port] --> WebRTCAdapter[WebRTC Meet Chromium Bot Service]

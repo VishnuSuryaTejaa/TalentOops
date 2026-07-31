@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any
 
-from app.services.llm_clients import groq_chat, openrouter_chat
+from app.services.llm_clients import groq_chat
 
 logger = logging.getLogger("talentops.parser_agent")
 
@@ -26,6 +26,9 @@ Your task is to take unstructured resume text and output a highly structured JSO
 You must return valid JSON strictly conforming to this schema (do NOT include markdown fences, just the raw JSON):
 
 {
+  "name": "<Candidate's full name. Empty string if not present.>",
+  "email": "<Candidate's email address. Empty string if not present.>",
+  "phone": "<Candidate's phone number. Empty string if not present.>",
   "summary": "<Candidate's professional summary. Empty string if not present.>",
   "skills": ["<skill1>", "<skill2>"],
   "projects": [
@@ -67,7 +70,7 @@ def _safe_llm_json(raw: str) -> dict:
 async def parse_resume_with_llm(raw_text: str) -> dict[str, Any]:
     """
     Extract structured resume data using an LLM.
-    Uses groq_chat primarily, with fallback to openrouter_chat.
+    Uses groq_chat primarily.
     """
     user_prompt = f"Resume Text:\n{raw_text}\n\nParse the above resume text into the required JSON format."
     
@@ -82,17 +85,5 @@ async def parse_resume_with_llm(raw_text: str) -> dict[str, Any]:
         )
         return _safe_llm_json(raw)
     except Exception as groq_err:
-        logger.warning("parser_agent: groq_chat failed: %s, falling back to openrouter", groq_err)
-        try:
-            raw = await openrouter_chat(
-                messages=[
-                    {"role": "system", "content": PARSER_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                json_mode=True,
-                max_tokens=4000,
-            )
-            return _safe_llm_json(raw)
-        except Exception as or_err:
-            logger.error("parser_agent: both LLMs failed. groq: %s | or: %s", groq_err, or_err)
-            raise ValueError("Failed to parse resume with LLM") from or_err
+        logger.warning("parser_agent: groq_chat failed: %s", groq_err)
+        return {"error": str(groq_err)}

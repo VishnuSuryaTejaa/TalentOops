@@ -41,4 +41,4 @@ A Manager Agent (LangGraph supervisor) runs the full pipeline via 5 sub-agents u
 
 ## 1.7 Constraints & flags
 - Consent/recording legality: all WebRTC-joined calls (candidate interviews and user reporting meetings) require jurisdiction-appropriate recording consent announced at call start; self-hosted recording = compliance responsibility fully in-house.
-- Conversational voice loop runs on the Hybrid Loop API stack (Gemini Live API via WebRTC; turn latency ≤800 ms P50 / ≤1.5 s P95 — D18/D19); heavy reasoning (per-candidate interview brief, hidden-context distillation, Extractive Evaluation) is async/offline via Groq Llama 3.3 70B and OpenRouter Nemotron API. Locally hosted Ollama and local GPU requirements have been eliminated (D18).
+- Conversational voice loop runs on the Hybrid Loop API stack (Gemini Live API via WebRTC; turn latency ≤800 ms P50 / ≤1.5 s P95 — D18/D19); heavy reasoning (per-candidate interview brief, hidden-context distillation, Extractive Evaluation) is async/offline via Groq Llama 3.3 70B and Groq Llama 3.3 70B API. Locally hosted Ollama and local GPU requirements have been eliminated (D18).

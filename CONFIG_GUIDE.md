@@ -42,15 +42,15 @@ origins = settings.cors_origins_list
 |----------|------|---------|---------------------|---------|
 | `GEMINI_API_KEY` | `str` | `""` | Google Gemini API key for multimodal/audio and LLM capabilities. | `AIzaSy...` |
 | `GROQ_API_KEY` | `str` | `""` | Groq Cloud API key for ultra-low latency LLM inference. | `gsk_...` |
-| `OPENROUTER_API_KEY` | `str` | `""` | OpenRouter unified API key for multi-model access. | `sk-or-v1-...` |
-| `LLM_PROVIDER` | `str` | `"openrouter"` | Selected LLM provider backend (`openrouter`, `groq`, `gemini`, `mock`). | `openrouter` |
+| `GROQ_API_KEY4` | `str` | `""` | Groq unified API key for multi-model access. | `sk-or-v1-...` |
+| `LLM_PROVIDER` | `str` | `"groq"` | Selected LLM provider backend (`groq`, `groq`, `gemini`, `mock`). | `groq` |
 | `LLM_MODEL` | `str` | `"meta-llama/llama-3.3-70b-instruct"` | Default model identifier for remote completion calls. | `meta-llama/llama-3.3-70b-instruct` |
 
 ### 3. Vector Embedding Engine
 
 | Variable | Type | Default | Description & Usage | Example |
 |----------|------|---------|---------------------|---------|
-| `EMBED_PROVIDER` | `str` | `"mock"` | Vector embedding generator provider (`mock`, `sentence_transformers`, `openai`, `openrouter`, `groq`). | `mock` |
+| `EMBED_PROVIDER` | `str` | `"mock"` | Vector embedding generator provider (`mock`, `sentence_transformers`, `openai`, `groq`, `groq`). | `mock` |
 | `EMBED_DIM` | `int` | `384` | Vector dimension size for candidate resume and job description embeddings. | `384` |
 
 ### 4. WebRTC Client Infrastructure
@@ -142,7 +142,7 @@ Minimal `.env` file for local development:
 ```env
 SUPABASE_URL="https://your-project.supabase.co"
 SUPABASE_KEY="your-anon-key"
-OPENROUTER_API_KEY="sk-or-v1-your-key"
+GROQ_API_KEY4="sk-or-v1-your-key"
 WEBRTC_API_BASE="http://localhost:18056"
 CORS_ORIGINS="http://localhost:5173"
 ```
@@ -167,7 +167,7 @@ In production environments (e.g. Docker, Kubernetes, Render, AWS ECS):
 IS_PRODUCTION=true
 LOG_LEVEL=INFO
 CORS_ORIGINS="https://talentops.example.com,https://dashboard.example.com"
-LLM_PROVIDER=openrouter
+LLM_PROVIDER=groq
 LLM_MODEL=meta-llama/llama-3.3-70b-instruct
 EMAIL_PROVIDER=smtp
 SMTP_SERVER="smtp.sendgrid.net"

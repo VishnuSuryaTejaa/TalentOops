@@ -419,13 +419,20 @@ async def parse_resume_bytes(
 
     # Use LLM data if present, otherwise fallback to regex extraction
     if llm_data:
+        candidate_name = llm_data.get("name") or candidate_name
+        email = llm_data.get("email") or email
+        phone = llm_data.get("phone") or phone
+
         summary = llm_data.get("summary") or ""
         skills = llm_data.get("skills") or []
         
         projects = []
         for p in llm_data.get("projects", []):
+            title = p.get("title", "").strip()
+            if not title:
+                continue
             projects.append(CandidateProject(
-                title=p.get("title", "Unknown Project")[:150],
+                title=title[:150],
                 description=p.get("description", "")[:1000],
                 technologies=p.get("technologies", []),
                 url=p.get("url", "")
@@ -456,19 +463,6 @@ async def parse_resume_bytes(
         # Extract projects from projects section or full text
         projects_raw = sections.get("projects") or ""
         projects = extract_projects_from_section(projects_raw)
-        
-        if not projects:
-            # Fallback: look for generic project indicators in the raw text
-            proj_matches = re.findall(r"(?:^|\n)([^\n]*?(?:github\.com|built a|developed a|created a|personal project)[^\n]*(?:\n[^\n]*){0,3})", raw_text, re.IGNORECASE)
-            if proj_matches:
-                for match in set(proj_matches):
-                    if len(match.strip()) > 20:
-                        projects.append(CandidateProject(
-                            title="Inferred Project",
-                            description=match.strip()[:1000],
-                            technologies=extract_skills_word_boundary(match)
-                        ))
-                        break # just grab one for fallback
 
         experience_raw = sections.get("experience") or ""
         experience = []

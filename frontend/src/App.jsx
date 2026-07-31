@@ -22,7 +22,7 @@ function App() {
 
   const urlParams = new URLSearchParams(window.location.search);
   const [roleId] = useState(urlParams.get('roleId') || '');
-  const [candidateId] = useState(urlParams.get('candidateId') || '');
+
   const [interviewId, setInterviewId] = useState(urlParams.get('interviewId') || '');
   
   // Stages: 'sourcing' | 'screening' | 'scheduling' | 'interview' | 'eval' | 'scorecard'
@@ -246,10 +246,11 @@ function App() {
           {activeStage === 'interview' && (
             <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
                <div className="panel p-8 text-center bg-[var(--panel)]">
-                 <h2 className="font-display text-2xl font-bold text-[var(--signal)] mb-4">INTERVIEW ROOM</h2>
-                 <p className="text-[var(--mute)] mb-6">Access the live interview room. Note: In a real scenario, this would route to a full-screen room.</p>
+                 <h2 className="font-display text-2xl font-bold text-[var(--signal)] mb-4">INTERVIEW ROOM READY</h2>
+                 <p className="text-[var(--mute)] mb-6">The candidate has been invited. You can also access the live interview room below.</p>
                  <div className="flex justify-center gap-4">
                    <button onClick={() => setActiveStage('scheduling')} className="px-4 py-2 border border-slate-700 rounded text-xs font-mono hover:bg-slate-800 transition">BACK TO SCHEDULING</button>
+                   <button onClick={() => window.open(`/interview/${interviewId}`, '_blank')} className="px-4 py-2 bg-[var(--tape)] text-[var(--ink)] font-bold rounded text-xs font-mono hover:bg-[#e6ff00] transition shadow-[0_0_12px_rgba(204,255,0,0.3)]">ENTER LIVE ROOM</button>
                    <button onClick={() => setActiveStage('eval')} className="px-4 py-2 bg-[var(--signal)] text-[var(--ink)] font-bold rounded text-xs font-mono hover:bg-[#33f3ff] transition shadow-[0_0_12px_rgba(0,240,255,0.3)]">COMPLETE & GO TO DEBRIEF</button>
                  </div>
                </div>

@@ -1,8 +1,9 @@
-"""Groq / OpenRouter chat clients."""
+"""Groq chat clients."""
 import asyncio
 import httpx
 import itertools
 import logging
+from tenacity import retry, wait_exponential, stop_after_attempt
 
 from app.config import settings
 
@@ -11,18 +12,43 @@ logger = logging.getLogger("talentops.llm_clients")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
-# Global state for cycling keys
-_groq_keys = [k for k in [getattr(settings, "GROQ_API_KEY", ""), getattr(settings, "GROQ_API_KEY2", "")] if k]
-_key_cycle = itertools.cycle(_groq_keys) if _groq_keys else None
+_groq_request_counter = itertools.count()
 
 
+def _configured_groq_keys() -> list[tuple[int, str]]:
+    configured: list[tuple[int, str]] = []
+    for key_number, key in enumerate(
+        (
+            getattr(settings, "GROQ_API_KEY", ""),
+            getattr(settings, "GROQ_API_KEY2", ""),
+            getattr(settings, "GROQ_API_KEY3", ""),
+            getattr(settings, "GROQ_API_KEY4", ""),
+        ),
+        start=1,
+    ):
+        key = key.strip()
+        if not key:
+            logger.warning("Groq API key %d is not configured.", key_number)
+            continue
+        if not key.startswith("gsk_"):
+            logger.warning("Groq API key %d is malformed and will be skipped.", key_number)
+            continue
+        configured.append((key_number, key))
+    return configured
+
+
+@retry(wait=wait_exponential(multiplier=1, min=2, max=30), stop=stop_after_attempt(5), reraise=True)
 async def groq_chat(messages: list[dict], json_mode: bool = False, max_tokens: int | None = None, temperature: float | None = None) -> str:
-    if not _key_cycle:
+    groq_keys = _configured_groq_keys()
+    if not groq_keys:
         raise ValueError("No Groq API keys configured in environment.")
 
     _messages = list(messages)
     if json_mode:
-        _messages.append({"role": "system", "content": "Return valid JSON."})
+        if _messages and _messages[0].get("role") == "system":
+            _messages[0] = {"role": "system", "content": _messages[0].get("content", "") + "\n\nReturn valid JSON."}
+        else:
+            _messages.insert(0, {"role": "system", "content": "Return valid JSON."})
 
     body: dict = {"model": GROQ_MODEL, "messages": _messages}
     if json_mode:
@@ -33,44 +59,33 @@ async def groq_chat(messages: list[dict], json_mode: bool = False, max_tokens: i
         body["temperature"] = temperature
 
     last_error = None
-    num_keys = len(_groq_keys)
-    
-    # Try up to 10 times total, cycling keys.
-    for attempt in range(10):
-        key = next(_key_cycle)
+    start_index = next(_groq_request_counter) % len(groq_keys)
+    ordered_keys = groq_keys[start_index:] + groq_keys[:start_index]
+
+    for attempt, (key_number, key) in enumerate(ordered_keys, start=1):
         headers = {"Authorization": f"Bearer {key}"}
-        
+        logger.info("Trying Groq API key %d (%d/%d).", key_number, attempt, len(ordered_keys))
+
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 r = await client.post(GROQ_URL, json=body, headers=headers)
-                if r.status_code in (401, 402, 404):
-                    r.raise_for_status() # break out or fail
-                
-                # If 429, we will catch it in HTTPStatusError below
                 r.raise_for_status()
+                logger.info("Groq API key %d succeeded.", key_number)
                 return r.json()["choices"][0]["message"]["content"]
-                
+
         except httpx.HTTPStatusError as e:
             last_error = e
-            if e.response.status_code in (401, 402, 404):
-                # Non-retryable
-                break
-            logger.warning("Groq API 429/5xx error on attempt %d. Switching key...", attempt + 1)
-            # Sleep if we've cycled through all keys
-            if attempt > 0 and attempt % num_keys == 0:
-                await asyncio.sleep(1.5 ** (attempt // num_keys))
-            else:
-                await asyncio.sleep(0.5)
+            logger.warning(
+                "Groq API key %d failed with HTTP %d: %s; trying the next configured key.",
+                key_number,
+                e.response.status_code,
+                e.response.text
+            )
 
         except Exception as e:
             last_error = e
-            logger.warning("Groq API connection error: %s. Retrying...", e)
-            await asyncio.sleep(1)
+            logger.warning("Groq API key %d connection error: %s; trying the next key.", key_number, e)
 
-    raise last_error or RuntimeError("Groq chat failed after retries.")
+    raise last_error or RuntimeError("Groq chat failed with all configured keys.")
 
 
-async def openrouter_chat(messages: list[dict], json_mode: bool = False, max_tokens: int | None = None, temperature: float | None = None) -> str:
-    # User requested to skip OpenRouter and just use cycling groq keys for now
-    logger.info("Redirecting openrouter_chat to groq_chat as per configuration.")
-    return await groq_chat(messages, json_mode, max_tokens, temperature)

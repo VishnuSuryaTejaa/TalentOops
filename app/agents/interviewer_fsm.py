@@ -83,8 +83,8 @@ class InterviewerFSM:
             comp_vec = embedder.embed(desc or " ".join(terms))
             sim = cosine(blob_vec, comp_vec)
             return sim >= 0.65
-        except Exception:
-            return kw_matched
+        except Exception as exc:
+            raise RuntimeError(f"Embedder failed during coverage check: {exc}")
 
     def _confidence(self, comp: dict) -> float:
         if not self._answers:
@@ -110,8 +110,8 @@ class InterviewerFSM:
                     continue
                 a_vec = embedder.embed(a)
                 sim_scores.append(cosine(a_vec, comp_vec))
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(f"Embedder failed during confidence calculation: {exc}")
 
         if sim_scores:
             max_sim = max(sim_scores)
