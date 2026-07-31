@@ -23,8 +23,8 @@ async def run_scheduling(
     if not top_candidate:
         raise ValueError("No top candidate provided for scheduling")
 
-    # Resolve candidate_id — use the slug form of the candidate name
-    candidate_id = top_candidate.lower().replace(" ", "-")
+    # Resolve candidate_id — preserve exact ID to match database records
+    candidate_id = top_candidate
 
     # Resolve candidate email if not provided
     resolved_email = candidate_email
@@ -41,7 +41,8 @@ async def run_scheduling(
 
     from app.rooms.room_manager import room_manager
 
-    interview_id = f"iv-{candidate_id}-{run_id[:8]}"
+    import uuid
+    interview_id = str(uuid.uuid4())
 
     room = await room_manager.create_room(
         candidate_id=candidate_id,

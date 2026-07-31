@@ -73,7 +73,33 @@ class Database:
         data = q.execute().data
         return data if data is not None else []
 
+    def insert_sync(self, table: str, row: dict) -> dict:
+        """Insert a row into the database synchronously."""
+        try:
+            data = self._sb().table(table).insert(row).execute().data
+            return data[0] if data else row
+        except Exception as e:
+            if logger:
+                logger.error(
+                    "Remote table '%s' insert failed (%s: %s)",
+                    table, type(e).__name__, str(e).splitlines()[0] if str(e) else ""
+                )
+            if metrics_collector:
+                metrics_collector.increment_error_count("database", "insert_sync")
+            raise
 
+    def get_sync(self, table: str, row_id: str) -> dict | None:
+        """Fetch a row from database synchronously."""
+        data = self._sb().table(table).select("*").eq("id", row_id).execute().data
+        return data[0] if data else None
+
+    def query_sync(self, table: str, **eq: Any) -> list[dict]:
+        """Query rows from database synchronously."""
+        q = self._sb().table(table).select("*")
+        for k, v in eq.items():
+            q = q.eq(k, v)
+        data = q.execute().data
+        return data if data is not None else []
 
     async def append_transcript(self, interview_id: str, chunk: dict) -> None:
         if interview_id in self._finalized:

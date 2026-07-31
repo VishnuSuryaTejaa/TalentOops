@@ -341,57 +341,67 @@ def create_app() -> FastAPI:
                         if c_t:
                             live_turns.append({"speaker": "candidate", "text": c_t})
 
-                from app.agents.evaluator_agent import EvaluatorAgent
-
-                # Pre-ensure candidate exists for foreign key constraints
-                try:
-                    cand_check = await db.query("candidates", id=target_cand_id)
-                    if not cand_check:
-                        await db.insert("candidates", {
-                            "id": target_cand_id,
-                            "name": f"Unknown Candidate ({target_cand_id[:8]})",
-                            "email": f"{target_cand_id}@example.com"
-                        })
-                except Exception as e:
-                    logger.warning("Could not pre-ensure candidate in evaluation fallback: %s", e)
-                    
-                # Pre-ensure role exists for foreign key constraints
-                try:
-                    role_id_val = rubric.get("role_id", "r-default") if isinstance(rubric, dict) else "r-default"
-                    role_check = await db.query("roles", id=role_id_val)
-                    if not role_check:
-                        await db.insert("roles", {
-                            "id": role_id_val,
-                            "jd": "Default Role",
-                            "frozen": True,
-                            "difficulty_level": "L2",
-                            "rubric": {"difficulty_level": "L2", "competencies": []}
-                        })
-                except Exception as e:
-                    logger.warning("Could not pre-ensure role in evaluation fallback: %s", e)
-
-                # Pre-ensure interview exists for foreign key constraints
-                try:
-                    iv_check = await db.query("interviews", id=target_interview_id)
-                    if not iv_check:
-                        await db.insert("interviews", {
-                            "id": target_interview_id,
-                            "candidate_id": target_cand_id,
-                            "role_id": rubric.get("role_id", "r-default") if isinstance(rubric, dict) else "r-default",
-                            "transcript": []
-                        })
-                except Exception as e:
-                    logger.warning("Could not pre-ensure interview in evaluation fallback: %s", e)
-
-                evaluator = EvaluatorAgent(run_id="run-ondemand-eval")
-                eval_payload = await evaluator.evaluate_transcript(
-                    interview_id=target_interview_id,
-                    candidate_id=target_cand_id,
-                    rubric=rubric,
-                    transcript_turns=live_turns,
+                has_candidate_turns = any(
+                    t.get("speaker", "").lower() == "candidate" and t.get("text", "").strip()
+                    for t in live_turns
                 )
-                if eval_payload and isinstance(eval_payload, dict):
-                    records = [eval_payload]
+
+                if has_candidate_turns:
+                    from app.agents.evaluator_agent import EvaluatorAgent
+
+                    # Pre-ensure candidate exists for foreign key constraints
+                    try:
+                        cand_check = await db.query("candidates", id=target_cand_id)
+                        if not cand_check:
+                            from app.services.parser import clean_candidate_name
+                            cleaned_name = clean_candidate_name(target_cand_id) or "Candidate"
+                            await db.insert("candidates", {
+                                "id": target_cand_id,
+                                "name": cleaned_name,
+                                "email": f"{target_cand_id}@example.com"
+                            })
+                    except Exception as e:
+                        logger.warning("Could not pre-ensure candidate in evaluation fallback: %s", e)
+                        
+                    # Pre-ensure role exists for foreign key constraints
+                    try:
+                        role_id_val = rubric.get("role_id", "r-default") if isinstance(rubric, dict) else "r-default"
+                        role_check = await db.query("roles", id=role_id_val)
+                        if not role_check:
+                            await db.insert("roles", {
+                                "id": role_id_val,
+                                "jd": "Default Role",
+                                "frozen": True,
+                                "difficulty_level": "L2",
+                                "rubric": {"difficulty_level": "L2", "competencies": []}
+                            })
+                    except Exception as e:
+                        logger.warning("Could not pre-ensure role in evaluation fallback: %s", e)
+
+                    # Pre-ensure interview exists for foreign key constraints
+                    try:
+                        iv_check = await db.query("interviews", id=target_interview_id)
+                        if not iv_check:
+                            await db.insert("interviews", {
+                                "id": target_interview_id,
+                                "candidate_id": target_cand_id,
+                                "role_id": rubric.get("role_id", "r-default") if isinstance(rubric, dict) else "r-default",
+                                "transcript": []
+                            })
+                    except Exception as e:
+                        logger.warning("Could not pre-ensure interview in evaluation fallback: %s", e)
+
+                    evaluator = EvaluatorAgent(run_id="run-ondemand-eval")
+                    eval_payload = await evaluator.evaluate_transcript(
+                        interview_id=target_interview_id,
+                        candidate_id=target_cand_id,
+                        rubric=rubric,
+                        transcript_turns=live_turns,
+                    )
+                    if eval_payload and isinstance(eval_payload, dict):
+                        records = [eval_payload]
+                else:
+                    logger.info("No candidate turns found for %s — skipping on-demand evaluation fallback until interview occurs", interview_id)
             except Exception as eval_err:
                 logger.error("On-demand evaluation failed for %s: %s", interview_id, eval_err)
 

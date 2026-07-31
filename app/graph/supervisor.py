@@ -144,6 +144,8 @@ async def run_pipeline_stream(goal: str, standard: str | None = None, corpus: li
                 payload["candidates"] = state_update["candidates"]
             if "top_candidate" in state_update:
                 payload["top_candidate"] = state_update["top_candidate"]
+            if "results" in state_update:
+                payload["results"] = state_update["results"]
                 
             yield json.dumps(payload) + "\n"
             

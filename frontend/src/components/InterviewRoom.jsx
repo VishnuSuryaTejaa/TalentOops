@@ -253,6 +253,12 @@ export default function InterviewRoom({ roomId }) {
   }, [roomId, speakText]);
 
   useEffect(() => {
+    if (roomId) {
+      connectWs();
+    }
+  }, [roomId, connectWs]);
+
+  useEffect(() => {
     return () => {
       if (wsRef.current) {
         wsRef.current.onmessage = null;
@@ -302,10 +308,6 @@ export default function InterviewRoom({ roomId }) {
       finalizeTurn();
     }
   }, [turnInput]);
-
-  useEffect(() => {
-    handleTurnSendRef.current = handleTurnSend;
-  }, [handleTurnSend]);
 
   const handleEnd = async () => {
     sendFrame('session-end');

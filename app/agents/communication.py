@@ -20,32 +20,31 @@ DECISION_COPY = {
     "REJECT": "Application Status Update — We will not be moving forward at this time",
 }
 
-
 from app.services.parser import clean_candidate_name
+from app.config import settings
+from app.services.llm_clients import groq_chat
 
-
-def _resolve_candidate_name(candidate: str) -> str:
+async def _resolve_candidate_name(candidate: str) -> str:
     """Resolve actual candidate full name from database if given a candidate ID."""
     if not candidate or not isinstance(candidate, str):
         return "Candidate"
     try:
-        cand_rows = db.query_sync("candidates", id=candidate)
+        cand_rows = await db.query("candidates", id=candidate)
         if cand_rows and cand_rows[0].get("name"):
-            return cand_rows[0]["name"]
+            name = cand_rows[0]["name"].strip()
+            if name and not name.startswith("Unknown Candidate"):
+                return name
     except Exception as exc:
         raise RuntimeError(f"Database error while resolving candidate name: {exc}")
-    return clean_candidate_name(candidate) or "Candidate"
-
-
-from app.config import settings
-from app.services.llm_clients import groq_chat
+    cleaned = clean_candidate_name(candidate)
+    return cleaned if cleaned else "Candidate"
 
 async def _invite_body_llm(candidate: str, slot: str, room_url: str | None = None) -> tuple[str, str]:
-    display_name = _resolve_candidate_name(candidate)
+    display_name = await _resolve_candidate_name(candidate)
     
     context = ""
     try:
-        cand_rows = db.query_sync("candidates", id=candidate)
+        cand_rows = await db.query("candidates", id=candidate)
         if cand_rows and cand_rows[0].get("profile"):
             context = str(cand_rows[0]["profile"])
     except Exception as exc:
@@ -68,7 +67,7 @@ Output ONLY the email body in plain text.
         elif settings.groq_api_keys:
             body = await groq_chat(messages)
         else:
-            return _invite_body(candidate, slot, room_url)
+            return await _invite_body(candidate, slot, room_url)
             
         subject = f"Interview Invitation - Next Steps for {display_name}"
         if not body or len(body.strip()) < 10:
@@ -76,12 +75,13 @@ Output ONLY the email body in plain text.
         return subject, body.strip()
     except Exception as exc:
         raise RuntimeError(f"LLM generation failed in _invite_body_llm: {exc}")
-def _invite_body(
+
+async def _invite_body(
     candidate: str,
     slot: str,
     room_url: str | None = None,
 ) -> tuple[str, str]:
-    display_name = _resolve_candidate_name(candidate)
+    display_name = await _resolve_candidate_name(candidate)
     subject = "Interview invitation — next steps"
     room_info = (
         f"TalentOops Interview Room: {room_url}\n"
@@ -100,9 +100,8 @@ def _invite_body(
     )
     return subject, body
 
-
-def _rejection_body(candidate: str) -> tuple[str, str]:
-    display_name = _resolve_candidate_name(candidate)
+async def _rejection_body(candidate: str) -> tuple[str, str]:
+    display_name = await _resolve_candidate_name(candidate)
     subject = "Update on your application"
     body = (
         f"Hi {display_name},\n\n"
@@ -112,9 +111,8 @@ def _rejection_body(candidate: str) -> tuple[str, str]:
     )
     return subject, body
 
-
-def _decision_body(candidate: str, decision: str) -> tuple[str, str]:
-    display_name = _resolve_candidate_name(candidate)
+async def _decision_body(candidate: str, decision: str) -> tuple[str, str]:
+    display_name = await _resolve_candidate_name(candidate)
     human_decision = DECISION_COPY.get(decision.upper(), decision)
     subject = f"Interview outcome — {human_decision}"
     body = (
@@ -124,8 +122,7 @@ def _decision_body(candidate: str, decision: str) -> tuple[str, str]:
     )
     return subject, body
 
-
-def _address_for(candidate: str, candidate_email: str | None = None) -> str:
+async def _address_for(candidate: str, candidate_email: str | None = None) -> str:
     if candidate_email and "@" in candidate_email:
         return candidate_email
     if candidate and "@" in candidate:
@@ -134,7 +131,7 @@ def _address_for(candidate: str, candidate_email: str | None = None) -> str:
     # Try database lookup
     if candidate and isinstance(candidate, str):
         try:
-            cand_rows = db.query_sync("candidates", id=candidate)
+            cand_rows = await db.query("candidates", id=candidate)
             if cand_rows and cand_rows[0].get("email") and "@" in cand_rows[0]["email"]:
                 return cand_rows[0]["email"]
         except Exception as exc:
@@ -142,8 +139,7 @@ def _address_for(candidate: str, candidate_email: str | None = None) -> str:
 
     raise ValueError(f"Invalid or missing candidate email for '{candidate}'. Cannot send email.")
 
-
-def _send(
+async def _send(
     run_id: str,
     kind: str,
     candidate: str,
@@ -151,12 +147,12 @@ def _send(
     body: str,
     candidate_email: str | None = None,
 ) -> dict[str, Any]:
-    target_address = _address_for(candidate, candidate_email)
+    target_address = await _address_for(candidate, candidate_email)
     client = get_email_client()
 
     # Idempotency check: Check if email of this kind was already sent to target_address in this run
     try:
-        events = db.query_sync("events", run_id=run_id, source="communication", event_type="email_sent")
+        events = await db.query("events", run_id=run_id, source="communication", event_type="email_sent")
         for ev in events:
             p = ev.get("payload", {})
             if p.get("kind") == kind and p.get("to") == target_address:
@@ -174,7 +170,6 @@ def _send(
     )
     return {"kind": kind, "to": msg.to, "message_id": msg.message_id, "subject": subject}
 
-
 async def send_invite(
     run_id: str,
     candidate: str,
@@ -184,14 +179,12 @@ async def send_invite(
 ) -> dict[str, Any]:
     """Send an interview invitation email with a TalentOops room URL."""
     subject, body = await _invite_body_llm(candidate, slot, room_url)
-    return _send(run_id, "invite", candidate, subject, body, candidate_email)
+    return await _send(run_id, "invite", candidate, subject, body, candidate_email)
 
+async def send_rejection(run_id: str, candidate: str, candidate_email: str | None = None) -> dict[str, Any]:
+    subject, body = await _rejection_body(candidate)
+    return await _send(run_id, "rejection", candidate, subject, body, candidate_email)
 
-def send_rejection(run_id: str, candidate: str, candidate_email: str | None = None) -> dict[str, Any]:
-    subject, body = _rejection_body(candidate)
-    return _send(run_id, "rejection", candidate, subject, body, candidate_email)
-
-
-def send_decision(run_id: str, candidate: str, decision: str, candidate_email: str | None = None) -> dict[str, Any]:
-    subject, body = _decision_body(candidate, decision)
-    return _send(run_id, "decision", candidate, subject, body, candidate_email)
+async def send_decision(run_id: str, candidate: str, decision: str, candidate_email: str | None = None) -> dict[str, Any]:
+    subject, body = await _decision_body(candidate, decision)
+    return await _send(run_id, "decision", candidate, subject, body, candidate_email)

@@ -74,11 +74,13 @@ class MultiAgentCoordinator:
             logger.warning("Could not pre-ensure role %s: %s", self.role_id, e)
 
         try:
+            from app.services.parser import clean_candidate_name
             cand = await db.query("candidates", id=self.candidate_id)
             if not cand:
+                cleaned_name = clean_candidate_name(self.candidate_id) or "Candidate"
                 await db.insert("candidates", {
                     "id": self.candidate_id,
-                    "name": f"Unknown Candidate ({self.candidate_id[:8]})",
+                    "name": cleaned_name,
                     "email": f"{self.candidate_id}@example.com"
                 })
         except Exception as e:

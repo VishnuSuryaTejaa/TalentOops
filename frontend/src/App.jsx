@@ -24,6 +24,7 @@ function App() {
   const [roleId] = useState(urlParams.get('roleId') || '');
 
   const [interviewId, setInterviewId] = useState(urlParams.get('interviewId') || '');
+  const [roomId, setRoomId] = useState(urlParams.get('roomId') || '');
   
   // Stages: 'sourcing' | 'screening' | 'scheduling' | 'interview' | 'eval' | 'scorecard'
   const [activeStage, setActiveStage] = useState(urlParams.get('stage') || 'sourcing'); 
@@ -111,6 +112,7 @@ function App() {
               if (data.type === 'update') {
                 if (data.candidates) setCandidates(data.candidates);
                 if (data.top_candidate) setInterviewId(`iv-${data.top_candidate}`);
+                if (data.results?.coordination?.room_id) setRoomId(data.results.coordination.room_id);
                 let frontendStage = (data.stage || 'unknown').toLowerCase();
                 if (frontendStage === 'intake') frontendStage = 'sourcing';
                 if (frontendStage === 'coordination') frontendStage = 'scheduling';
@@ -133,7 +135,14 @@ function App() {
                   if (data.final_state.top_candidate) {
                     setInterviewId(`iv-${data.final_state.top_candidate}`);
                   }
-                  setActiveStage('eval');
+                  if (data.final_state.results?.coordination?.room_id) {
+                    setRoomId(data.final_state.results.coordination.room_id);
+                  }
+                  if (data.final_state.completed?.includes('evaluation')) {
+                    setActiveStage('eval');
+                  } else {
+                    setActiveStage('interview');
+                  }
                 }
               } else if (data.type === 'error') {
                 setValidationError(data.error);
@@ -250,7 +259,7 @@ function App() {
                  <p className="text-[var(--mute)] mb-6">The candidate has been invited. You can also access the live interview room below.</p>
                  <div className="flex justify-center gap-4">
                    <button onClick={() => setActiveStage('scheduling')} className="px-4 py-2 border border-slate-700 rounded text-xs font-mono hover:bg-slate-800 transition">BACK TO SCHEDULING</button>
-                   <button onClick={() => window.open(`/interview/${interviewId}`, '_blank')} className="px-4 py-2 bg-[var(--tape)] text-[var(--ink)] font-bold rounded text-xs font-mono hover:bg-[#e6ff00] transition shadow-[0_0_12px_rgba(204,255,0,0.3)]">ENTER LIVE ROOM</button>
+                   <button onClick={() => window.open(`/interview/${roomId || interviewId}`, '_blank')} className="px-4 py-2 bg-[var(--tape)] text-[var(--ink)] font-bold rounded text-xs font-mono hover:bg-[#e6ff00] transition shadow-[0_0_12px_rgba(204,255,0,0.3)]">ENTER LIVE ROOM</button>
                    <button onClick={() => setActiveStage('eval')} className="px-4 py-2 bg-[var(--signal)] text-[var(--ink)] font-bold rounded text-xs font-mono hover:bg-[#33f3ff] transition shadow-[0_0_12px_rgba(0,240,255,0.3)]">COMPLETE & GO TO DEBRIEF</button>
                  </div>
                </div>

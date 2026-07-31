@@ -136,6 +136,27 @@ class RoomManager:
         """Register a WebSocket client in the room; transition to WAITING/ACTIVE."""
         session = self._sessions.get(room_id)
         if session is None:
+            # Fallback: re-hydrate room session from Supabase database
+            try:
+                db_rooms = await db.query("interview_rooms", room_id=room_id)
+                if db_rooms:
+                    r = db_rooms[0]
+                    room = InterviewRoom(
+                        room_id=r["room_id"],
+                        candidate_id=r["candidate_id"],
+                        interview_id=r["interview_id"],
+                        room_url=r.get("room_url", ""),
+                        status=RoomStatus(r.get("status", RoomStatus.SCHEDULED.value)),
+                        metadata=r.get("metadata", {}) or {},
+                    )
+                    async with self._lock:
+                        session = RoomSession(room)
+                        self._sessions[room_id] = session
+                    logger.info("Restored room %s session from database", room_id)
+            except Exception as exc:
+                logger.warning("Failed to restore room %s from DB: %s", room_id, exc)
+
+        if session is None:
             raise KeyError(f"Room {room_id!r} not found")
 
         await session.add_client(ws)
