@@ -18,52 +18,51 @@ const STAGE = {
 };
 
 export default function InterviewRoom({ roomId }) {
-  const [stage,       setStage]       = useState(STAGE.LOBBY);
-  const [micOn,       setMicOn]       = useState(true);
-  const [camOn,       setCamOn]       = useState(true);
-  const [consentText, setConsentText] = useState('');
-  const [disclosure,  setDisclosure]  = useState('');
-  const [transcript,  setTranscript]  = useState([]);
-  const [turnInput,   setTurnInput]   = useState('');
-  const [fsmState,    setFsmState]    = useState('OPENING');
-  const [errorMsg,    setErrorMsg]    = useState('');
-  const [consentGranted, setConsentGranted] = useState(false);
-  const [candidateName, setCandidateName] = useState('');
-
+  const [stage,            setStage]            = useState(STAGE.LOBBY);
+  const [transcript,       setTranscript]       = useState([]);
+  const [fsmState,         setFsmState]         = useState('OPENING');
+  const [micOn,            setMicOn]            = useState(true);
+  const [camOn,            setCamOn]            = useState(true);
+  const [turnInput,        setTurnInput]        = useState('');
+  const [disclosure,       setDisclosure]       = useState('');
+  const [consentText,      setConsentText]      = useState('');
+  const [consentGranted,   setConsentGranted]   = useState(false);
+  const [candidateName,    setCandidateName]    = useState('');
+  const [interviewId,      setInterviewId]      = useState('');
+  const [errorMsg,         setErrorMsg]         = useState('');
   const [totalSeconds,     setTotalSeconds]     = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
-  // Remove roomMeta to avoid unused state
+  const [sttListening,     setSttListening]     = useState(false); // true while recognition is active
+  const [ending,           setEnding]           = useState(false);  // true while End Room is in flight
 
-  const wsRef          = useRef(null);
-  const localVideoRef  = useRef(null);
-  const localStream    = useRef(null);
-  const transcriptEnd  = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const micOnRef       = useRef(true);
-  const stageRef       = useRef(STAGE.LOBBY);
-  const countdownRef   = useRef(null);
+  const wsRef            = useRef(null);
+  const localVideoRef    = useRef(null);
+  const localStream      = useRef(null);
+  const transcriptEnd    = useRef(null);
+  const recognitionRef   = useRef(null);   // Web Speech API SpeechRecognition instance
+  const finalTextRef     = useRef('');     // accumulated final (committed) words
+  const micOnRef         = useRef(true);
+  const stageRef         = useRef(STAGE.LOBBY);
+  const countdownRef     = useRef(null);
   const selectedVoiceRef = useRef(null);
+  const lastSpokenRef    = useRef('');     // dedup TTS calls
 
-  /* ── webcam preview ─────────────────────────────────────────────────────── */
+  // Detect browser support for Web Speech API
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  const sttSupported = Boolean(SpeechRecognition);
+
+  /* ── Camera preview only (no binary audio to backend) ──────────────────── */
   useEffect(() => {
     let stream;
-    navigator.mediaDevices?.getUserMedia({ video: true, audio: true })
+    navigator.mediaDevices?.getUserMedia({ video: true, audio: false })
       .then(s => {
         stream = s;
         localStream.current = s;
         if (localVideoRef.current) localVideoRef.current.srcObject = s;
       })
-      .catch(() => {});
-    return () => {
-      stream?.getTracks().forEach(t => t.stop());
-    };
+      .catch(err => console.warn('Camera access failed:', err));
+    return () => stream?.getTracks().forEach(t => t.stop());
   }, []);
-
-  useEffect(() => {
-    if (localStream.current) {
-      localStream.current.getAudioTracks().forEach(t => (t.enabled = micOn));
-    }
-  }, [micOn]);
 
   useEffect(() => {
     if (localStream.current) {
@@ -71,31 +70,87 @@ export default function InterviewRoom({ roomId }) {
     }
   }, [camOn]);
 
-  useEffect(() => {
-    if (micOn && localStream.current && wsRef.current?.readyState === WebSocket.OPEN && stage === STAGE.INTERVIEW) {
-      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
-        try {
-          const audioStream = new MediaStream(localStream.current.getAudioTracks());
-          const recorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' });
-          recorder.ondataavailable = (e) => {
-            if (e.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(e.data);
-            }
-          };
-          recorder.start(500); // Send audio in 500ms chunks
-          mediaRecorderRef.current = recorder;
-        } catch (err) {
-          console.warn('MediaRecorder start failed:', err);
+  /* ── Web Speech API: live STT → populates the input box word by word ────── */
+  const startRecognition = useCallback(() => {
+    if (!SpeechRecognition) return;
+    // Stop any existing session first
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch {}
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous    = true;   // keep listening across pauses
+    recognition.interimResults = true;  // fire events for partial words too
+    recognition.lang          = 'en-US';
+
+    recognition.onstart = () => setSttListening(true);
+
+    recognition.onresult = (event) => {
+      let interimText = '';
+      // Walk only the new results since last event
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          // Commit final words to the accumulated ref
+          finalTextRef.current += result[0].transcript + ' ';
+        } else {
+          // Interim result — show as live preview
+          interimText += result[0].transcript;
         }
       }
-    } else {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        try {
-          mediaRecorderRef.current.stop();
-        } catch {}
+      // Update the visible input box: committed words + live interim
+      setTurnInput(finalTextRef.current + interimText);
+    };
+
+    recognition.onerror = (e) => {
+      // 'no-speech' is normal (silence); ignore it
+      if (e.error !== 'no-speech') console.warn('SpeechRecognition error:', e.error);
+    };
+
+    recognition.onend = () => {
+      setSttListening(false);
+      // Auto-restart if we're still in the interview and mic is on
+      // (browsers stop recognition after ~60s of continuous speech)
+      if (stageRef.current === STAGE.INTERVIEW && micOnRef.current) {
+        try { recognition.start(); } catch {}
       }
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+  }, [SpeechRecognition]);
+
+  const stopRecognition = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.onend = null; // prevent auto-restart
+      try { recognitionRef.current.abort(); } catch {}
+      recognitionRef.current = null;
     }
-  }, [micOn, stage]);
+    setSttListening(false);
+  }, []);
+
+  // Start recognition when interview begins; stop when leaving
+  useEffect(() => {
+    if (stage === STAGE.INTERVIEW && micOn) {
+      finalTextRef.current = ''; // reset accumulated text for new session
+      startRecognition();
+    } else {
+      stopRecognition();
+    }
+    return () => stopRecognition();
+  }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mic toggle: start/stop recognition
+  useEffect(() => {
+    if (stage !== STAGE.INTERVIEW) return;
+    if (micOn) {
+      finalTextRef.current = ''; // fresh start on unmute
+      startRecognition();
+    } else {
+      stopRecognition();
+    }
+  }, [micOn]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ behavior: 'smooth' });
@@ -124,6 +179,9 @@ export default function InterviewRoom({ roomId }) {
 
   const speakText = useCallback((text) => {
     if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    // Bug 5: skip if the same text was just spoken (dedup double-TTS from dual WS connections)
+    if (text === lastSpokenRef.current) return;
+    lastSpokenRef.current = text;
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
@@ -145,13 +203,23 @@ export default function InterviewRoom({ roomId }) {
   useEffect(() => {
     stageRef.current = stage;
     if (stage === STAGE.COMPLETE) {
-      window.location.href = `/?interviewId=${roomId}&tab=hr`;
+      const targetId = interviewId || roomId;
+      window.location.href = `/?interviewId=${targetId}&roomId=${roomId}&stage=eval`;
     }
-  }, [stage, roomId]);
+  }, [stage, roomId, interviewId]);
 
   /* ── WebSocket connection ───────────────────────────────────────────────── */
   const connectWs = useCallback(() => {
     if (!roomId) return;
+    // Bug 4: prevent duplicate connections — bail if one is already alive
+    if (
+      wsRef.current &&
+      (wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING)
+    ) {
+      console.warn('connectWs: WebSocket already open/connecting — skipping duplicate.');
+      return;
+    }
     const ws = new WebSocket(`${WS_BASE}/api/ws/room/${roomId}`);
     wsRef.current = ws;
 
@@ -166,6 +234,9 @@ export default function InterviewRoom({ roomId }) {
         case 'room-joined':
           if (data.candidate_name) {
             setCandidateName(data.candidate_name);
+          }
+          if (data.interview_id) {
+            setInterviewId(data.interview_id);
           }
           break;
 
@@ -252,11 +323,10 @@ export default function InterviewRoom({ roomId }) {
     ws.onclose = () => { wsRef.current = null; };
   }, [roomId, speakText]);
 
-  useEffect(() => {
-    if (roomId) {
-      connectWs();
-    }
-  }, [roomId, connectWs]);
+  // Bug 4: Do NOT auto-connect on mount — user must explicitly click "Connect Signal Channel".
+  // Removed the useEffect that called connectWs() automatically (it was racing with the
+  // component mount and causing two simultaneous WS connections in React StrictMode).
+
 
   useEffect(() => {
     return () => {
@@ -291,29 +361,51 @@ export default function InterviewRoom({ roomId }) {
   };
 
   const handleTurnSend = useCallback((overrideText) => {
-    const textToSend = typeof overrideText === 'string' ? overrideText : turnInput;
-    // Do not check for empty text because we might be sending binary audio instead
-    
-    // We do not eagerly append to transcript locally, we wait for backend broadcast
-    const finalizeTurn = () => {
-      sendFrame('interview-turn', { text: textToSend.trim() });
-      setTurnInput('');
-      setMicOn(false);
-    };
+    const textToSend = (typeof overrideText === 'string' ? overrideText : turnInput).trim();
+    if (!textToSend) return; // nothing to send
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.onstop = finalizeTurn;
-      mediaRecorderRef.current.stop();
-    } else {
-      finalizeTurn();
-    }
-  }, [turnInput]);
+    // Stop recognition so it doesn't keep updating the input while we send
+    stopRecognition();
+
+    // Send only the plain text — no audio — to backend
+    sendFrame('interview-turn', { text: textToSend });
+
+    // Clear input and accumulated text ref
+    setTurnInput('');
+    finalTextRef.current = '';
+
+    // Restart recognition for the next answer (after a short pause so
+    // the interviewer question doesn't get picked up by the mic)
+    setTimeout(() => {
+      if (stageRef.current === STAGE.INTERVIEW && micOnRef.current) {
+        startRecognition();
+      }
+    }, 800);
+  }, [turnInput, stopRecognition, startRecognition]);
 
   const handleEnd = async () => {
-    sendFrame('session-end');
+    if (ending) return; // prevent double-click
+    setEnding(true);
+
+    // 1. Stop live STT so mic doesn't keep capturing
+    stopRecognition();
+
+    // 2. Notify backend via WS that session is ending
+    sendFrame('session-end', { ended_by: 'candidate' });
+
+    // 3. Call REST endpoint BEFORE closing WS — backend needs session alive to broadcast
+    try {
+      await fetch(`${API_BASE}/api/rooms/${roomId}/end?ended_by=candidate`, { method: 'POST' });
+    } catch (err) {
+      console.warn('End room REST call failed:', err);
+    }
+
+    // 4. Now close the WebSocket
     wsRef.current?.close();
-    await fetch(`${API_BASE}/api/rooms/${roomId}/end`, { method: 'POST' }).catch(() => {});
+
+    // 5. Transition UI
     setStage(STAGE.COMPLETE);
+    setEnding(false);
   };
 
   return (
@@ -349,9 +441,17 @@ export default function InterviewRoom({ roomId }) {
           <button
             type="button"
             onClick={handleEnd}
-            className="px-3 py-1 rounded-[var(--radius)] bg-[var(--alert)]/20 text-[var(--alert)] border border-[var(--alert)]/50 hover:bg-[var(--alert)]/30 font-semibold"
+            disabled={ending}
+            className="px-3 py-1 rounded-[var(--radius)] bg-[var(--alert)]/20 text-[var(--alert)] border border-[var(--alert)]/50 hover:bg-[var(--alert)]/30 font-semibold disabled:opacity-50 flex items-center gap-1.5"
           >
-            END ROOM
+            {ending ? (
+              <>
+                <Loader2 size={12} className="animate-spin" />
+                ENDING...
+              </>
+            ) : (
+              'END ROOM'
+            )}
           </button>
         </div>
       </header>
@@ -522,29 +622,55 @@ export default function InterviewRoom({ roomId }) {
               />
 
               {/* Answer Input Controls */}
-              <div className="flex gap-3 pt-2">
-                <input
-                  id="input-answer"
-                  type="text"
-                  value={turnInput}
-                  onChange={e => setTurnInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleTurnSend()}
-                  placeholder="Speak into microphone or type answer..."
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-[var(--radius)] px-4 py-3 font-mono text-xs text-[var(--bone)] focus:outline-none focus:border-[var(--tape)]"
-                />
-                <button
-                  type="button"
-                  id="btn-send-turn"
-                  onClick={() => handleTurnSend()}
-                  disabled={!turnInput.trim() && !micOn}
-                  className="px-5 py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-xs font-bold hover:bg-[#e6ff00] disabled:opacity-40 transition-all"
-                >
-                  TRANSMIT TURN
-                </button>
+              <div className="flex flex-col gap-2 pt-2">
+
+                {/* Live STT status indicator */}
+                {sttSupported ? (
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full transition-colors ${sttListening ? 'bg-[var(--tape)] animate-signal-pulse' : 'bg-slate-700'}`} />
+                    <span className="font-mono text-[10px] text-[var(--mute)] uppercase tracking-widest">
+                      {sttListening ? 'LIVE STT — SPEAK NOW' : micOn ? 'STT READY — START SPEAKING' : 'MIC OFF — TYPE OR UNMUTE'}
+                    </span>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="font-mono text-[10px] text-[var(--alert)] uppercase tracking-widest">
+                      ⚠ Browser STT not supported — please type your answer
+                    </span>
+                  </div>
+                )}
+
+                {/* Input row: text field + send button */}
+                <div className="flex gap-3">
+                  <input
+                    id="input-answer"
+                    type="text"
+                    value={turnInput}
+                    onChange={e => setTurnInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleTurnSend()}
+                    placeholder={sttSupported ? 'Speak — words appear here live...' : 'Type your answer here...'}
+                    className={`flex-1 bg-slate-950 border rounded-[var(--radius)] px-4 py-3 font-mono text-xs text-[var(--bone)] focus:outline-none transition-colors ${
+                      sttListening
+                        ? 'border-[var(--tape)] shadow-[0_0_8px_rgba(204,255,0,0.15)]'
+                        : 'border-slate-800 focus:border-[var(--tape)]'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    id="btn-send-turn"
+                    onClick={() => handleTurnSend()}
+                    disabled={!turnInput.trim()}
+                    className="px-5 py-3 rounded-[var(--radius)] bg-[var(--tape)] text-[var(--ink)] font-mono text-xs font-bold hover:bg-[#e6ff00] disabled:opacity-40 transition-all"
+                  >
+                    TRANSMIT TURN
+                  </button>
+                </div>
+
               </div>
 
             </div>
           )}
+
 
           {/* EVALUATING STAGE */}
           {stage === STAGE.EVALUATING && (

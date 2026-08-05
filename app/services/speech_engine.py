@@ -100,16 +100,28 @@ class STTService:
             logger.warning("[whisper-stt] Groq API key is not set for Whisper fallback.")
             return ""
 
+        content_type = _detect_audio_content_type(audio_bytes)
+        # Map MIME type to a matching filename extension so Groq Whisper
+        # can identify the container format correctly (browser sends webm, not wav)
+        _ext_map = {
+            "audio/wav": "audio.wav",
+            "audio/webm": "audio.webm",
+            "audio/ogg": "audio.ogg",
+            "audio/mp3": "audio.mp3",
+            "audio/flac": "audio.flac",
+        }
+        filename = _ext_map.get(content_type, "audio.webm")
         url = "https://api.groq.com/openai/v1/audio/transcriptions"
         headers = {
             "Authorization": f"Bearer {api_key}",
         }
         files = {
-            "file": ("audio.wav", audio_bytes, "audio/wav")
+            "file": (filename, audio_bytes, content_type)
         }
         data = {
             "model": "whisper-large-v3"
         }
+
         try:
             response = httpx.post(url, headers=headers, files=files, data=data, timeout=30.0)
             response.raise_for_status()
@@ -193,11 +205,15 @@ class TTSService:
         api_key = (
             getattr(settings, "GOOGLE_TTS_API_KEY", "")
             or getattr(settings, "GOOGLE_CLOUD_API_KEY", "")
-            or getattr(settings, "GEMINI_API_KEY", "")
             or ""
         )
         if not api_key:
-            raise ValueError("[google-tts] No Google Cloud TTS API key configured. Real API execution is enforced.")
+            raise ValueError(
+                "[google-tts] GOOGLE_TTS_API_KEY is not configured. "
+                "The Gemini API key cannot be used for Cloud TTS (different key type → 401). "
+                "Set GOOGLE_TTS_API_KEY in your .env file, or switch TTS_PROVIDER to 'openai'."
+            )
+
 
         url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
         import re

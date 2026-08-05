@@ -235,12 +235,13 @@ class _InteractiveRoomSession:
         try:
             while True:
                 message = await self.ws.receive()
-                
-                if "bytes" in message:
-                    if state == "INTERVIEW_ACTIVE":
-                        self._audio_buffer.extend(message["bytes"])
-                    continue
-                
+
+                # Ignore binary frames — frontend no longer sends raw audio.
+                # Text-based STT (Web Speech API) runs in the browser; only text arrives here.
+                raw_bytes = message.get("bytes")
+                if raw_bytes:
+                    continue  # silently discard any stray binary frames
+
                 if "text" in message:
                     raw = message["text"]
                 else:
@@ -270,8 +271,6 @@ class _InteractiveRoomSession:
                     await self._turn_queue.put("__END_SESSION__")
                     break
 
-
-
                 # ── Dispatch by state ─────────────────────────────────────
                 if state == "CONSENT_PENDING":
                     if msg_type == SignalType.CONSENT_RESPONSE.value:
@@ -295,30 +294,24 @@ class _InteractiveRoomSession:
 
                 elif state == "INTERVIEW_ACTIVE":
                     if msg_type == SignalType.INTERVIEW_TURN.value:
+                        # Frontend sends plain text (transcribed by Web Speech API in the browser).
+                        # No server-side STT needed — text arrives directly in the JSON frame.
                         candidate_text = data.get("text", "").strip()
-                        
-                        if not candidate_text and self._audio_buffer:
-                            audio_data = bytes(self._audio_buffer)
-                            self._audio_buffer.clear()
-                            try:
-                                from app.services.speech_engine import STTService
-                                stt = STTService()
-                                candidate_text = await stt.transcribe_audio(audio_data)
-                                candidate_text = candidate_text.strip()
-                                logger.info("Transcribed audio turn in room %s: %s", self.room_id, candidate_text)
-                            except Exception as e:
-                                logger.error("STT processing failed in room %s: %s", self.room_id, e)
-
                         if candidate_text:
+                            logger.info("Received candidate turn in room %s: %r", self.room_id, candidate_text[:120])
                             await self._turn_queue.put(candidate_text)
+                        else:
+                            logger.debug("Room %s: empty interview-turn frame ignored", self.room_id)
                     else:
                         logger.debug(
                             "Room %s: ignoring frame type %r while INTERVIEW_ACTIVE",
                             self.room_id, msg_type,
                         )
 
-        except WebSocketDisconnect:
-            logger.info("Client disconnected from room %s (state=%s)", self.room_id, state)
+
+        except (WebSocketDisconnect, RuntimeError) as exc:
+            logger.info("Client disconnected from room %s (state=%s): %s", self.room_id, state, exc)
+
         except Exception as exc:
             logger.error(
                 "Room WS session error in room %s (state=%s): %s",

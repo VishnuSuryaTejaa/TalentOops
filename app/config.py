@@ -137,6 +137,8 @@ class Settings(BaseSettings):
     STT_PROVIDER: str = "deepgram"
     TTS_PROVIDER: str = "google"
     DEEPGRAM_API_KEY: str = ""
+    GOOGLE_TTS_API_KEY: str = ""   # Dedicated Google Cloud TTS API key (separate from Gemini)
+    GOOGLE_CLOUD_API_KEY: str = "" # Fallback alias
 
     @property
     def stt_provider(self) -> str:

@@ -58,10 +58,63 @@ async def get_room(room_id: str) -> dict[str, Any]:
 
 
 @router.post("/{room_id}/end")
-async def end_room(room_id: str) -> dict[str, Any]:
-    """Close a room session, evaluate stored transcript, generate scorecard, and transition status (idempotent)."""
+async def end_room(room_id: str, ended_by: str = "system") -> dict[str, Any]:
+    """Close a room session.
+
+    When ended_by='candidate', we record USER_ENDED immediately and skip
+    the full EvaluatorAgent run (which requires a complete transcript).
+    When ended_by='hr' or 'system', we run the full evaluation pipeline.
+    """
     from app.services.database import db
+    from app.rooms.models import RoomStatus
+
     room = room_manager.get_room(room_id)
+
+    # ── Candidate explicitly ended the room ───────────────────────────────────
+    if ended_by == "candidate":
+        # Update DB status to USER_ENDED regardless of session state
+        now_utc_iso = __import__("datetime").datetime.utcnow().isoformat()
+        try:
+            await db.update(
+                "interview_rooms",
+                {"room_id": room_id},
+                {
+                    "status":   "COMPLETED",          # DB enum stays COMPLETED
+                    "ended_at": now_utc_iso,
+                    "metadata": {"ended_by": "candidate", "end_reason": "user_terminated"},
+                },
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist USER_ENDED for room %s: %s", room_id, exc)
+
+        # Cancel any running agent task and remove session
+        session = room_manager._sessions.get(room_id)
+        if session:
+            if session.agent_task and not session.agent_task.done():
+                session.agent_task.cancel()
+                try:
+                    await session.agent_task
+                except Exception:
+                    pass
+            # Notify any remaining WS clients
+            try:
+                await session.broadcast({
+                    "type": "session-end",
+                    "data": {
+                        "room_id":   room_id,
+                        "status":    "USER_ENDED",
+                        "ended_by":  "candidate",
+                    },
+                })
+            except Exception:
+                pass
+            async with room_manager._lock:
+                room_manager._sessions.pop(room_id, None)
+
+        logger.info("Room %s ended by candidate — recorded USER_ENDED", room_id)
+        return {"status": "USER_ENDED", "room_id": room_id, "ended_by": "candidate"}
+
+    # ── System / HR full evaluation path ─────────────────────────────────────
     if room is None:
         try:
             db_rooms = await db.query("interview_rooms", room_id=room_id)

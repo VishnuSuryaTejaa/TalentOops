@@ -27,14 +27,21 @@ function App() {
   const [roomId, setRoomId] = useState(urlParams.get('roomId') || '');
   
   // Stages: 'sourcing' | 'screening' | 'scheduling' | 'interview' | 'eval' | 'scorecard'
-  const [activeStage, setActiveStage] = useState(urlParams.get('stage') || 'sourcing'); 
+  const initialStage = urlParams.get('stage') || 'sourcing';
+  const [activeStage, setActiveStage] = useState(initialStage);
+  const [completedNodes, setCompletedNodes] = useState(() => {
+    if (initialStage === 'eval') return ['sourcing', 'screening', 'scheduling', 'interview'];
+    if (initialStage === 'interview') return ['sourcing', 'screening', 'scheduling'];
+    if (initialStage === 'scheduling') return ['sourcing', 'screening'];
+    if (initialStage === 'screening') return ['sourcing'];
+    return ['sourcing'];
+  });
   const [candidates, setCandidates] = useState([]);
 
   const [goal, setGoal] = useState('');
   const [standard, setStandard] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [running, setRunning] = useState(false);
-  const [completedNodes, setCompletedNodes] = useState([]);
   const [runResult, setRunResult] = useState(null);
   const [validationError, setValidationError] = useState('');
 

@@ -102,7 +102,7 @@ class RemoteEmbedder:
             return _EMBEDDING_CACHE[cache_key]
 
         try:
-            if "api.groq.com" in self._client.base_url.lower():
+            if "api.groq.com" in str(self._client.base_url).lower():
                 # Groq doesn't currently support an embeddings endpoint. Bypass to avoid latency and 404s.
                 raise NotImplementedError("Groq does not support embeddings API.")
 
@@ -140,7 +140,7 @@ class RemoteEmbedder:
 
         if missing_texts:
             try:
-                if "api.groq.com" in self._client.base_url.lower():
+                if "api.groq.com" in str(self._client.base_url).lower():
                     raise NotImplementedError("Groq does not support embeddings API.")
 
                 kwargs: dict[str, Any] = {"model": self._model, "input": missing_texts}

@@ -1,5 +1,5 @@
 import os
-from fastapi import HTTPException as fastapi_HTTPException
+from fastapi import HTTPException as fHTTPExcep
 import re
 from datetime import datetime, timezone
 from fastapi import FastAPI, Header
@@ -75,7 +75,7 @@ def create_app() -> FastAPI:
     @app.api_route("/rest/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def supabase_rest_fallback(path: str):
         """Fallback for Supabase PostgREST calls accidentally hitting FastAPI backend."""
-        raise fastapi_HTTPException(status_code=404, detail="Supabase API requests should not hit the backend.")
+        raise fHTTPExcep(status_code=404, detail="Supabase API requests should not hit the backend.")
 
 
 
