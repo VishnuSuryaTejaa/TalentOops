@@ -192,7 +192,10 @@ async def generate_dynamic_question(
         question = (question or "").strip().strip('"')
         if question and not is_semantic_duplicate(question, asked_questions_list) and "beginning of the interview" not in question.lower():
             return question
-        raise RuntimeError("LLM failed to generate a valid, non-duplicate question.")
+        # Fallback: return a safe generic question instead of crashing the interview loop
+        logger.warning("LLM generated a duplicate or invalid question — using fallback.")
+        return "Can you walk me through a challenging technical problem you solved recently and explain your approach?"
     except Exception as exc:
-        raise RuntimeError(f"LLM question generation failed: {exc}")
+        logger.warning("LLM question generation failed: %s — using fallback.", exc)
+        return "Tell me about a project where you had to make significant technical trade-offs."
 

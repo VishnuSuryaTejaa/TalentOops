@@ -3,7 +3,6 @@ import asyncio
 import httpx
 import itertools
 import logging
-from tenacity import retry, wait_exponential, stop_after_attempt
 
 from app.config import settings
 
@@ -37,7 +36,6 @@ def _configured_groq_keys() -> list[tuple[int, str]]:
     return configured
 
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=30), stop=stop_after_attempt(5), reraise=True)
 async def groq_chat(messages: list[dict], json_mode: bool = False, max_tokens: int | None = None, temperature: float | None = None) -> str:
     groq_keys = _configured_groq_keys()
     if not groq_keys:

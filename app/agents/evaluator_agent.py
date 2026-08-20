@@ -131,6 +131,8 @@ def _format_qa_transcript(transcript_turns: list[dict | str]) -> str:
             q_num += 1
             lines.append(f"\n[Q{q_num}] Interviewer: {(turn.get('text') or question_text).strip()}")
         elif speaker == "candidate" and (turn.get("text") or answer_text):
+            if q_num == 0:
+                q_num = 1  # Ensure candidate answers are never mislabeled as [A0]
             lines.append(f"[A{q_num}] Candidate: {(turn.get('text') or answer_text).strip()}")
 
     return "\n".join(lines) if lines else "No transcript turns recorded."

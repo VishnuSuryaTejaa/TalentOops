@@ -245,8 +245,6 @@ class RoomManager:
             existing_sc = await db.query("scorecards", interview_id=room.interview_id)
             if not existing_sc:
                 existing_sc = await db.query("scorecards", interview_id=room_id)
-            if not existing_sc:
-                existing_sc = await db.query("scorecards", candidate_id=room.candidate_id)
             if existing_sc:
                 already_evaluated = True
                 scorecard_result = existing_sc[0]

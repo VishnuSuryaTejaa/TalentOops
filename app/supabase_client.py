@@ -89,7 +89,12 @@ def log_event(
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        _insert_sync(row)
+        # No event loop — fall back to synchronous insert
+        try:
+            _insert_sync(row)
+        except Exception as sync_exc:
+            # Fire-and-forget: never crash the caller for event logging
+            logger.warning("[event:sync_fallback_failed] %s: %s", type(sync_exc).__name__, sync_exc)
         return
 
     task = loop.create_task(_write(row))

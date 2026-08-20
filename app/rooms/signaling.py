@@ -449,7 +449,7 @@ class _InteractiveRoomSession:
                 pass
             self.duration_seconds = duration_minutes * 60.0
             deadline: float | None = (
-                asyncio.get_event_loop().time() + self.duration_seconds
+                asyncio.get_running_loop().time() + self.duration_seconds
                 if self.duration_seconds > 0 else None
             )
 

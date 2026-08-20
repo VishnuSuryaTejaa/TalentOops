@@ -217,8 +217,11 @@ class TTSService:
 
         url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
         import re
+        import html
         # Strip markdown (asterisks, underscores, hashes) which can cause TTS to glitch or fallback
         clean_text = re.sub(r'[*_#`]', '', text).strip()
+        # Escape HTML/XML entities to prevent SSML injection
+        clean_text = html.escape(clean_text)
         
         payload = {
             "input": {"ssml": f"<speak><prosody rate='90%'>{clean_text}</prosody></speak>"},

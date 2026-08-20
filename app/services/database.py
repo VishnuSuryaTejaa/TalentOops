@@ -18,6 +18,7 @@ class TranscriptFinalizedError(Exception):
 class Database:
     def __init__(self) -> None:
         self._finalized: set[str] = set()
+        self._client = None
         global logger, metrics_collector
         if logger is None:
             from app.services.logging import get_metrics
@@ -132,10 +133,13 @@ class Database:
         return "\n".join(f"{c.get('speaker', '?')}: {c.get('text', '')}" for c in chunks)
 
     def _sb(self):
+        if self._client is not None:
+            return self._client
         from supabase import create_client
         if not settings.supabase_configured:
             raise ValueError("Supabase is not configured. Enforcing REAL API execution.")
-        return create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        self._client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        return self._client
 
 
 db = Database()

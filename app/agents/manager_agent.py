@@ -83,7 +83,7 @@ class ManagerAgent:
         scorecard_data = scorecards[0] if scorecards else {}
 
         # 2. Fetch Q&A logs
-        qa_logs = await db.query("interview_qa_logs", interview_id=target_id)
+        qa_logs = await db.query("interview_qa_logs", session_id=target_id)
         if not qa_logs:
             qa_logs = await db.query("interview_qa_logs", candidate_id=target_id)
 
@@ -103,13 +103,33 @@ class ManagerAgent:
         if not events:
             events = await db.query("events", candidate_id=cand_id)
 
+        # Normalize transcript_turns to a consistent format with 'question' and 'answer' keys
+        raw_turns = room_data.get("turns") or scorecard_data.get("full_transcript_evaluations") or []
+        if not raw_turns and qa_logs:
+            raw_turns = qa_logs
+
+        # Normalize heterogeneous key names to 'question' / 'answer'
+        normalized_turns = []
+        for turn in raw_turns:
+            normalized = dict(turn)
+            # Normalize question key
+            if "question" not in normalized and "question_text" in normalized:
+                normalized["question"] = normalized.pop("question_text")
+            # Normalize answer key — handle 'candidate_answer', 'candidate_answer_transcript'
+            if "answer" not in normalized:
+                for alt_key in ("candidate_answer", "candidate_answer_transcript"):
+                    if alt_key in normalized:
+                        normalized["answer"] = normalized.pop(alt_key)
+                        break
+            normalized_turns.append(normalized)
+
         return {
             "interview_id": target_id,
             "candidate_id": cand_id,
             "candidate_profile": candidate_data,
             "scorecard": scorecard_data.get("scorecard") or scorecard_data,
             "qa_logs": qa_logs,
-            "transcript_turns": room_data.get("turns") or scorecard_data.get("full_transcript_evaluations") or qa_logs,
+            "transcript_turns": normalized_turns,
             "transcript_summary": room_data.get("transcript") or "",
             "subagent_events": events,
         }
@@ -173,16 +193,14 @@ Answer the user's question accurately using the stored interview evidence and su
 
         try:
             from app.config import settings
-            from app.services.llm_clients import openrouter_chat, groq_chat
+            from app.services.llm_clients import groq_chat
 
             messages = [
                 {"role": "system", "content": "You are the Manager AI Agent accountable for all interview decisions."},
                 {"role": "user", "content": manager_prompt},
             ]
-            if settings.LLM_PROVIDER == "groq" and (settings.GROQ_API_KEY or getattr(settings, "GROQ_API_KEY2", "")):
+            if settings.GROQ_API_KEY or getattr(settings, "GROQ_API_KEY2", ""):
                 answer = await groq_chat(messages)
-            elif settings.OPENROUTER_API_KEY:
-                answer = await openrouter_chat(messages)
             else:
                 from app.llm.client import get_llm_client
                 client = get_llm_client()

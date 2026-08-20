@@ -55,8 +55,18 @@ class Embedder(Protocol):
         ...
 
 
+from collections import OrderedDict
 
-_EMBEDDING_CACHE: dict[str, list[float]] = {}
+_EMBEDDING_CACHE: OrderedDict[str, list[float]] = OrderedDict()
+_EMBEDDING_CACHE_MAX = 5_000
+
+
+def _cache_put(key: str, value: list[float]) -> None:
+    """Insert into the LRU embedding cache, evicting oldest if over capacity."""
+    _EMBEDDING_CACHE[key] = value
+    _EMBEDDING_CACHE.move_to_end(key)
+    while len(_EMBEDDING_CACHE) > _EMBEDDING_CACHE_MAX:
+        _EMBEDDING_CACHE.popitem(last=False)
 
 
 def _get_text_hash(text: str, dim: int) -> str:
@@ -118,7 +128,7 @@ class RemoteEmbedder:
                 logger.warning("Remote embedding API call failed (%s). Using fallback deterministic vector.", exc)
             norm_vec = _hash_embed(text, self.dim)
 
-        _EMBEDDING_CACHE[cache_key] = norm_vec
+        _cache_put(cache_key, norm_vec)
         return norm_vec
 
     @retry_with_backoff(max_retries=3, initial_delay=0.5)
@@ -148,7 +158,7 @@ class RemoteEmbedder:
                 for m_idx, item in zip(missing_indices, resp.data):
                     norm_vec = self._normalize(item.embedding)
                     cache_key = _get_text_hash(texts[m_idx], self.dim)
-                    _EMBEDDING_CACHE[cache_key] = norm_vec
+                    _cache_put(cache_key, norm_vec)
                     results[m_idx] = norm_vec
             except Exception as exc:
                 if isinstance(exc, NotImplementedError):
@@ -158,7 +168,7 @@ class RemoteEmbedder:
                 for m_idx in missing_indices:
                     norm_vec = _hash_embed(texts[m_idx], self.dim)
                     cache_key = _get_text_hash(texts[m_idx], self.dim)
-                    _EMBEDDING_CACHE[cache_key] = norm_vec
+                    _cache_put(cache_key, norm_vec)
                     results[m_idx] = norm_vec
 
         return [res for res in results if res is not None]

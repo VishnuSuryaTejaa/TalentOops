@@ -15,6 +15,7 @@ import logging
 import sys
 import json
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable, Optional
@@ -66,7 +67,7 @@ class MetricsCollector:
     def __init__(self):
         """Initialize metrics collector."""
         self._request_counts: dict[str, int] = {}
-        self._response_times: list[float] = []
+        self._response_times: deque[float] = deque(maxlen=10_000)
         self._error_counts: dict[str, int] = {}
         self._service_calls: dict[str, int] = {}
 
